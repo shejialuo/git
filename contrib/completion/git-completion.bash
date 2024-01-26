@@ -2447,11 +2447,22 @@ _git_rebase ()
 
 _git_reflog ()
 {
-	local subcommands="show delete expire"
+	local subcommand subcommands="show delete expire"
 
 	if __gitcomp_subcommand "$subcommands"; then
 		return
 	fi
+
+	subcommand="$(__git_find_subcommand "$subcommands" "show")"
+
+	case "$subcommand,$cur" in
+	show,--*)
+		__gitcomp "
+			$__git_log_common_options
+			"
+		return
+		;;
+	esac
 
 	__git_complete_refs
 }
