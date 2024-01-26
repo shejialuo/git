@@ -554,6 +554,27 @@ __gitcomp_file ()
 	true
 }
 
+# Completion for subcommands in commands that follow the syntax:
+#
+#    git <command> <subcommand>
+#
+# 1: List of possible completion words.
+# Returns false if the current word is not a possible subcommand
+# (possitioned after the command), or if no option is found in
+# the list provided.
+__gitcomp_subcommand ()
+{
+	local subcommands="$1"
+
+	if [ $cword -eq $(($__git_cmd_idx + 1)) ]; then
+		__gitcomp "$subcommands"
+
+		test -n "$COMPREPLY"
+	else
+		false
+	fi
+}
+
 # Execute 'git ls-files', unless the --committable option is specified, in
 # which case it runs 'git diff-index' to find out the files that can be
 # committed.  It return paths relative to the directory specified in the first
