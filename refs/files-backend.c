@@ -229,38 +229,6 @@ static void add_per_worktree_entries_to_dir(struct ref_dir *dir, const char *dir
 	}
 }
 
-static void loose_fill_ref_dir_regular_file(struct files_ref_store *refs,
-					    const char *refname,
-					    struct ref_dir *dir)
-{
-	struct object_id oid;
-	int flag;
-
-	if (!refs_resolve_ref_unsafe(&refs->base, refname, RESOLVE_REF_READING,
-				     &oid, &flag)) {
-		oidclr(&oid);
-		flag |= REF_ISBROKEN;
-	} else if (is_null_oid(&oid)) {
-		/*
-		 * It is so astronomically unlikely
-		 * that null_oid is the OID of an
-		 * actual object that we consider its
-		 * appearance in a loose reference
-		 * file to be repo corruption
-		 * (probably due to a software bug).
-		 */
-		flag |= REF_ISBROKEN;
-	}
-
-	if (check_refname_format(refname, REFNAME_ALLOW_ONELEVEL)) {
-		if (!refname_is_safe(refname))
-			die("loose refname is dangerous: %s", refname);
-		oidclr(&oid);
-		flag |= REF_BAD_NAME | REF_ISBROKEN;
-	}
-	add_entry_to_dir(dir, create_ref_entry(refname, &oid, flag));
-}
-
 /*
  * Read the loose references from the namespace dirname into dir
  * (without recursing).  dirname must end with '/'.  dir must be the
@@ -289,6 +257,8 @@ static void loose_fill_ref_dir(struct ref_store *ref_store,
 	strbuf_add(&refname, dirname, dirnamelen);
 
 	while ((de = readdir(d)) != NULL) {
+		struct object_id oid;
+		int flag;
 		unsigned char dtype;
 
 		if (de->d_name[0] == '.')
@@ -304,7 +274,33 @@ static void loose_fill_ref_dir(struct ref_store *ref_store,
 					 create_dir_entry(dir->cache, refname.buf,
 							  refname.len));
 		} else if (dtype == DT_REG) {
-			loose_fill_ref_dir_regular_file(refs, refname.buf, dir);
+			if (!refs_resolve_ref_unsafe(&refs->base,
+						     refname.buf,
+						     RESOLVE_REF_READING,
+						     &oid, &flag)) {
+				oidclr(&oid);
+				flag |= REF_ISBROKEN;
+			} else if (is_null_oid(&oid)) {
+				/*
+				 * It is so astronomically unlikely
+				 * that null_oid is the OID of an
+				 * actual object that we consider its
+				 * appearance in a loose reference
+				 * file to be repo corruption
+				 * (probably due to a software bug).
+				 */
+				flag |= REF_ISBROKEN;
+			}
+
+			if (check_refname_format(refname.buf,
+						 REFNAME_ALLOW_ONELEVEL)) {
+				if (!refname_is_safe(refname.buf))
+					die("loose refname is dangerous: %s", refname.buf);
+				oidclr(&oid);
+				flag |= REF_BAD_NAME | REF_ISBROKEN;
+			}
+			add_entry_to_dir(dir,
+					 create_ref_entry(refname.buf, &oid, flag));
 		}
 		strbuf_setlen(&refname, dirnamelen);
 	}
@@ -315,59 +311,9 @@ static void loose_fill_ref_dir(struct ref_store *ref_store,
 	add_per_worktree_entries_to_dir(dir, dirname);
 }
 
-/*
- * Add pseudorefs to the ref dir by parsing the directory for any files
- * which follow the pseudoref syntax.
- */
-static void add_pseudoref_and_head_entries(struct ref_store *ref_store,
-					 struct ref_dir *dir,
-					 const char *dirname)
-{
-	struct files_ref_store *refs =
-		files_downcast(ref_store, REF_STORE_READ, "fill_ref_dir");
-	struct strbuf path = STRBUF_INIT, refname = STRBUF_INIT;
-	struct dirent *de;
-	size_t dirnamelen;
-	DIR *d;
-
-	files_ref_path(refs, &path, dirname);
-
-	d = opendir(path.buf);
-	if (!d) {
-		strbuf_release(&path);
-		return;
-	}
-
-	strbuf_addstr(&refname, dirname);
-	dirnamelen = refname.len;
-
-	while ((de = readdir(d)) != NULL) {
-		unsigned char dtype;
-
-		if (de->d_name[0] == '.')
-			continue;
-		if (ends_with(de->d_name, ".lock"))
-			continue;
-		strbuf_addstr(&refname, de->d_name);
-
-		dtype = get_dtype(de, &path, 1);
-		if (dtype == DT_REG && (is_pseudoref(ref_store, de->d_name) ||
-								is_headref(ref_store, de->d_name)))
-			loose_fill_ref_dir_regular_file(refs, refname.buf, dir);
-
-		strbuf_setlen(&refname, dirnamelen);
-	}
-	strbuf_release(&refname);
-	strbuf_release(&path);
-	closedir(d);
-}
-
-static struct ref_cache *get_loose_ref_cache(struct files_ref_store *refs,
-					     unsigned int flags)
+static struct ref_cache *get_loose_ref_cache(struct files_ref_store *refs)
 {
 	if (!refs->loose) {
-		struct ref_dir *dir;
-
 		/*
 		 * Mark the top-level directory complete because we
 		 * are about to read the only subdirectory that can
@@ -378,17 +324,12 @@ static struct ref_cache *get_loose_ref_cache(struct files_ref_store *refs,
 		/* We're going to fill the top level ourselves: */
 		refs->loose->root->flag &= ~REF_INCOMPLETE;
 
-		dir = get_ref_dir(refs->loose->root);
-
-		if (flags & DO_FOR_EACH_INCLUDE_ALL_REFS)
-			add_pseudoref_and_head_entries(dir->cache->ref_store, dir,
-										   refs->loose->root->name);
-
 		/*
 		 * Add an incomplete entry for "refs/" (to be filled
 		 * lazily):
 		 */
-		add_entry_to_dir(dir, create_dir_entry(refs->loose, "refs/", 5));
+		add_entry_to_dir(get_ref_dir(refs->loose->root),
+				 create_dir_entry(refs->loose, "refs/", 5));
 	}
 	return refs->loose;
 }
@@ -916,7 +857,7 @@ static struct ref_iterator *files_ref_iterator_begin(
 	 * disk, and re-reads it if not.
 	 */
 
-	loose_iter = cache_ref_iterator_begin(get_loose_ref_cache(refs, flags),
+	loose_iter = cache_ref_iterator_begin(get_loose_ref_cache(refs),
 					      prefix, ref_store->repo, 1);
 
 	/*
@@ -1277,7 +1218,7 @@ static int files_pack_refs(struct ref_store *ref_store,
 
 	packed_refs_lock(refs->packed_ref_store, LOCK_DIE_ON_ERROR, &err);
 
-	iter = cache_ref_iterator_begin(get_loose_ref_cache(refs, 0), NULL,
+	iter = cache_ref_iterator_begin(get_loose_ref_cache(refs), NULL,
 					the_repository, 0);
 	while ((ok = ref_iterator_advance(iter)) == ITER_OK) {
 		/*
