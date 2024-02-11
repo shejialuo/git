@@ -26,12 +26,15 @@ test_expect_success PERL 'saying "n" does nothing' '
 	verify_saved_state bar
 '
 
-test_expect_success PERL 'git reset -p' '
-	test_write_lines n y | git reset -p >output &&
-	verify_state dir/foo work head &&
-	verify_saved_state bar &&
-	test_grep "Unstage" output
-'
+for opt in "HEAD" "@" ""
+do
+	test_expect_success PERL "git reset -p $opt" '
+		test_write_lines n y | git reset -p $opt >output &&
+		verify_state dir/foo work head &&
+		verify_saved_state bar &&
+		test_grep "Unstage" output
+	'
+done
 
 test_expect_success PERL 'git reset -p HEAD^' '
 	test_write_lines n y | git reset -p HEAD^ >output &&
