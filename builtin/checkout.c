@@ -1224,9 +1224,7 @@ static void setup_new_branch_info_and_source_tree(
 	struct tree **source_tree = &opts->source_tree;
 	struct object_id branch_rev;
 
-	/* treat '@' as a shortcut for 'HEAD' */
-	new_branch_info->name = !strcmp(arg, "@") ? xstrdup("HEAD") :
-						    xstrdup(arg);
+	new_branch_info->name = xstrdup(arg);
 	setup_branch_path(new_branch_info);
 
 	if (!check_refname_format(new_branch_info->path, 0) &&
