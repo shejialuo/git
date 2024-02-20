@@ -509,7 +509,9 @@ static int fsck_handle_reflog_ent(struct object_id *ooid, struct object_id *noid
 	return 0;
 }
 
-static int fsck_handle_reflog(const char *logname, void *cb_data)
+static int fsck_handle_reflog(const char *logname,
+			      const struct object_id *oid UNUSED,
+			      int flag UNUSED, void *cb_data)
 {
 	struct strbuf refname = STRBUF_INIT;
 
