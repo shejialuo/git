@@ -1,17 +1,12 @@
 #include "test-lib.h"
 
 #define TEST_CHAR_CLASS(class, string) do { \
-	int skip = test__run_begin(); \
-	if (!skip) { \
-		for (int i = 0; i < 256; i++) { \
-			int expect = !!memchr(string, i, sizeof(string) - 1); \
-			if (!check_int(class(i), ==, expect)) \
-				test_msg("       i: 0x%02x", i); \
-		} \
-		if (!check(!class(EOF))) \
-			test_msg("      i: 0x%02x (EOF)", EOF); \
+	for (int i = 0; i < 256; i++) { \
+		int expect = !!memchr(string, i, sizeof(string) - 1); \
+		TEST(check_int(class(i), ==, expect), \
+		     #class "(0x%02x) works", i); \
 	} \
-	test__run_end(!skip, TEST_LOCATION(), #class " works"); \
+	TEST(check(!class(EOF)), #class "(EOF) works"); \
 } while (0)
 
 #define DIGIT "0123456789"
