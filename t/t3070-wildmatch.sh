@@ -107,7 +107,7 @@ match_with_ls_files() {
 
 	if test "$match_expect" = 'E'
 	then
-		if test -e .git/created_test_file
+		if test_path_exists .git/created_test_file
 		then
 			test_expect_success EXPENSIVE_ON_WINDOWS "$match_function (via ls-files): match dies on '$pattern' '$text'" "
 				printf '%s' '$text' >expect &&
@@ -118,7 +118,7 @@ match_with_ls_files() {
 		fi
 	elif test "$match_expect" = 1
 	then
-		if test -e .git/created_test_file
+		if test_path_exists .git/created_test_file
 		then
 			test_expect_success EXPENSIVE_ON_WINDOWS "$match_function (via ls-files): match '$pattern' '$text'" "
 				printf '%s' '$text' >expect &&
@@ -130,7 +130,7 @@ match_with_ls_files() {
 		fi
 	elif test "$match_expect" = 0
 	then
-		if test -e .git/created_test_file
+		if test_path_exists .git/created_test_file
 		then
 			test_expect_success EXPENSIVE_ON_WINDOWS "$match_function (via ls-files): no match '$pattern' '$text'" "
 				>expect &&
@@ -175,7 +175,7 @@ match() {
 	fi
 
 	test_expect_success EXPENSIVE_ON_WINDOWS 'cleanup after previous file test' '
-		if test -e .git/created_test_file
+		if test_path_exists .git/created_test_file
 		then
 			git reset &&
 			git clean -df
@@ -198,7 +198,7 @@ match() {
 			fi &&
 			git add -A &&
 			printf "%s" "$file" >.git/created_test_file
-		elif test -e .git/created_test_file
+		elif test_path_exists .git/created_test_file
 		then
 			rm .git/created_test_file
 		fi
