@@ -3298,6 +3298,20 @@ static int files_init_db(struct ref_store *ref_store,
 	return 0;
 }
 
+static int each_ref_check_name_fn(const char *refname,
+			const struct object_id *oid UNUSED, int flags UNUSED,  void *cb_data UNUSED)
+{
+	if (check_refname_format(refname, 0))
+		return -1;
+
+	return 0;
+}
+
+static int files_check_ref(struct ref_store *ref_store)
+{
+	return refs_for_each_ref(ref_store, each_ref_check_name_fn, NULL);
+}
+
 struct ref_storage_be refs_be_files = {
 	.name = "files",
 	.init = files_ref_store_create,
@@ -3310,6 +3324,7 @@ struct ref_storage_be refs_be_files = {
 	.pack_refs = files_pack_refs,
 	.rename_ref = files_rename_ref,
 	.copy_ref = files_copy_ref,
+	.check_ref = files_check_ref,
 
 	.iterator_begin = files_ref_iterator_begin,
 	.read_raw_ref = files_read_raw_ref,

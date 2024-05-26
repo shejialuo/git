@@ -573,6 +573,8 @@ typedef int copy_ref_fn(struct ref_store *ref_store,
 			  const char *oldref, const char *newref,
 			  const char *logmsg);
 
+typedef int check_ref_fn(struct ref_store *ref_store);
+
 /*
  * Iterate over the references in `ref_store` whose names start with
  * `prefix`. `prefix` is matched as a literal string, without regard
@@ -688,6 +690,7 @@ struct ref_storage_be {
 	pack_refs_fn *pack_refs;
 	rename_ref_fn *rename_ref;
 	copy_ref_fn *copy_ref;
+	check_ref_fn *check_ref;
 
 	ref_iterator_begin_fn *iterator_begin;
 	read_raw_ref_fn *read_raw_ref;
