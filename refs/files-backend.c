@@ -3299,9 +3299,119 @@ static int files_init_db(struct ref_store *ref_store,
 	return 0;
 }
 
+typedef int (*files_fsck_refs_fn)(const char *refs_check_dir,
+				struct dir_iterator *iter);
+
+static int files_fsck_refs_name(const char *refs_check_dir,
+				struct dir_iterator *iter)
+{
+	if (check_refname_format(iter->basename, REFNAME_ALLOW_ONELEVEL)) {
+		error(_("%s/%s: invalid refname format"), refs_check_dir, iter->basename);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int files_fsck_refs_content(const char *refs_check_dir,
+				struct dir_iterator *iter)
+{
+	struct strbuf ref_content = STRBUF_INIT;
+
+	if (strbuf_read_file(&ref_content, iter->path.buf, 0) < 0) {
+		error(_("%s/%s: unable to read the ref"), refs_check_dir, iter->basename);
+		goto clean;
+	}
+
+	/*
+	 * Case 1: check if the ref content length is valid and the last
+	 * character is a newline.
+	 */
+	if (ref_content.len != the_hash_algo->hexsz + 1 ||
+			ref_content.buf[ref_content.len - 1] != '\n') {
+		goto failure;
+	}
+
+	/*
+	 * Case 2: the content should be range of [0-9a-f].
+	 */
+	for (size_t i = 0; i < the_hash_algo->hexsz; i++) {
+		if (!isdigit(ref_content.buf[i]) &&
+				(ref_content.buf[i] < 'a' || ref_content.buf[i] > 'f')) {
+			goto failure;
+		}
+	}
+
+	strbuf_release(&ref_content);
+	return 0;
+
+failure:
+	error(_("%s/%s: invalid ref content"), refs_check_dir, iter->basename);
+
+clean:
+	strbuf_release(&ref_content);
+	return -1;
+}
+
+static int files_fsck_refs(struct ref_store *ref_store,
+				const char* refs_check_dir,
+				files_fsck_refs_fn *fsck_refs_fns)
+{
+	struct dir_iterator *iter;
+	struct strbuf sb = STRBUF_INIT;
+	int ret = 0;
+	int iter_status;
+
+	strbuf_addf(&sb, "%s/%s", ref_store->gitdir, refs_check_dir);
+
+	iter = dir_iterator_begin(sb.buf, 0);
+
+	/*
+	 * The current implementation does not care about the worktree, the worktree
+	 * may have no refs/heads or refs/tags directory. Simply return 0 now.
+	*/
+	if (!iter) {
+		return 0;
+	}
+
+	while ((iter_status = dir_iterator_advance(iter)) == ITER_OK) {
+		if (S_ISDIR(iter->st.st_mode)) {
+			continue;
+		} else if (S_ISREG(iter->st.st_mode)) {
+			for (files_fsck_refs_fn *fsck_refs_fn = fsck_refs_fns;
+					*fsck_refs_fn; fsck_refs_fn++) {
+				ret |= (*fsck_refs_fn)(refs_check_dir, iter);
+			}
+		} else {
+			error(_("unexpected file type for '%s'"), iter->basename);
+			ret = -1;
+		}
+	}
+
+	if (iter_status != ITER_DONE) {
+		ret = -1;
+		error(_("failed to iterate over '%s'"), sb.buf);
+	}
+
+	strbuf_release(&sb);
+
+	return ret;
+}
+
 static int files_fsck(struct ref_store *ref_store)
 {
-	return 0;
+	int ret = 0;
+
+	files_fsck_refs_fn fsck_refs_fns[] = {
+		files_fsck_refs_name,
+		files_fsck_refs_content,
+		NULL
+	};
+
+	ret = files_fsck_refs(ref_store, "refs/heads",fsck_refs_fns)
+	    | files_fsck_refs(ref_store, "refs/tags", fsck_refs_fns);
+
+	return ret;
 }
 
 struct ref_storage_be refs_be_files = {
