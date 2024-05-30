@@ -1065,6 +1065,11 @@ int cmd_fsck(int argc, const char **argv, const char *prefix)
 
 	check_connectivity();
 
+	if (refs_fsck(get_main_ref_store(the_repository))) {
+		error("ref database is corrupt");
+		errors_found |= ERROR_REFS;
+	}
+
 	if (the_repository->settings.core_commit_graph) {
 		struct child_process commit_graph_verify = CHILD_PROCESS_INIT;
 

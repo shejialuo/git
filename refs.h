@@ -545,6 +545,11 @@ int refs_for_each_reflog(struct ref_store *refs, each_reflog_fn fn, void *cb_dat
 int check_refname_format(const char *refname, int flags);
 
 /*
+  * Return 0 iff all refs in filesystem are consistent.
+*/
+int refs_fsck(struct ref_store *refs);
+
+/*
  * Apply the rules from check_refname_format, but mutate the result until it
  * is acceptable, and place the result in "out".
  */
