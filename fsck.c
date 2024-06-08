@@ -203,7 +203,8 @@ void fsck_set_msg_types(struct fsck_options *options, const char *values)
 		if (!strcmp(buf, "skiplist")) {
 			if (equal == len)
 				die("skiplist requires a path");
-			oidset_parse_file(&options->skiplist, buf + equal + 1);
+			oidset_parse_file(&options->objs_options.skiplist,
+					  buf + equal + 1);
 			buf += len + 1;
 			continue;
 		}
@@ -220,7 +221,7 @@ void fsck_set_msg_types(struct fsck_options *options, const char *values)
 static int object_on_skiplist(struct fsck_options *opts,
 			      const struct object_id *oid)
 {
-	return opts && oid && oidset_contains(&opts->skiplist, oid);
+	return opts && oid && oidset_contains(&opts->objs_options.skiplist, oid);
 }
 
 __attribute__((format (printf, 5, 6)))
@@ -249,8 +250,8 @@ static int report(struct fsck_options *options,
 
 	va_start(ap, fmt);
 	strbuf_vaddf(&sb, fmt, ap);
-	result = options->error_func(options, oid, object_type,
-				     msg_type, msg_id, sb.buf);
+	result = options->objs_options.error_func(options, oid, object_type,
+						  msg_type, msg_id, sb.buf);
 	strbuf_release(&sb);
 	va_end(ap);
 
@@ -259,20 +260,20 @@ static int report(struct fsck_options *options,
 
 void fsck_enable_object_names(struct fsck_options *options)
 {
-	if (!options->object_names)
-		options->object_names = kh_init_oid_map();
+	if (!options->objs_options.object_names)
+		options->objs_options.object_names = kh_init_oid_map();
 }
 
 const char *fsck_get_object_name(struct fsck_options *options,
 				 const struct object_id *oid)
 {
 	khiter_t pos;
-	if (!options->object_names)
+	if (!options->objs_options.object_names)
 		return NULL;
-	pos = kh_get_oid_map(options->object_names, *oid);
-	if (pos >= kh_end(options->object_names))
+	pos = kh_get_oid_map(options->objs_options.object_names, *oid);
+	if (pos >= kh_end(options->objs_options.object_names))
 		return NULL;
-	return kh_value(options->object_names, pos);
+	return kh_value(options->objs_options.object_names, pos);
 }
 
 void fsck_put_object_name(struct fsck_options *options,
@@ -284,15 +285,17 @@ void fsck_put_object_name(struct fsck_options *options,
 	khiter_t pos;
 	int hashret;
 
-	if (!options->object_names)
+	if (!options->objs_options.object_names)
 		return;
 
-	pos = kh_put_oid_map(options->object_names, *oid, &hashret);
+	pos = kh_put_oid_map(options->objs_options.object_names,
+			     *oid, &hashret);
 	if (!hashret)
 		return;
 	va_start(ap, fmt);
 	strbuf_vaddf(&buf, fmt, ap);
-	kh_value(options->object_names, pos) = strbuf_detach(&buf, NULL);
+	kh_value(options->objs_options.object_names, pos) =
+		strbuf_detach(&buf, NULL);
 	va_end(ap);
 }
 
@@ -318,6 +321,7 @@ const char *fsck_describe_object(struct fsck_options *options,
 
 static int fsck_walk_tree(struct tree *tree, void *data, struct fsck_options *options)
 {
+	struct fsck_objs_options *objs_options = &options->objs_options;
 	struct tree_desc desc;
 	struct name_entry entry;
 	int res = 0;
@@ -342,14 +346,14 @@ static int fsck_walk_tree(struct tree *tree, void *data, struct fsck_options *op
 			if (name && obj)
 				fsck_put_object_name(options, &entry.oid, "%s%s/",
 						     name, entry.path);
-			result = options->walk(obj, OBJ_TREE, data, options);
+			result = objs_options->walk(obj, OBJ_TREE, data, options);
 		}
 		else if (S_ISREG(entry.mode) || S_ISLNK(entry.mode)) {
 			obj = (struct object *)lookup_blob(the_repository, &entry.oid);
 			if (name && obj)
 				fsck_put_object_name(options, &entry.oid, "%s%s",
 						     name, entry.path);
-			result = options->walk(obj, OBJ_BLOB, data, options);
+			result = objs_options->walk(obj, OBJ_BLOB, data, options);
 		}
 		else {
 			result = error("in tree %s: entry %s has bad mode %.6o",
@@ -366,6 +370,7 @@ static int fsck_walk_tree(struct tree *tree, void *data, struct fsck_options *op
 
 static int fsck_walk_commit(struct commit *commit, void *data, struct fsck_options *options)
 {
+	struct fsck_objs_options *objs_options = &options->objs_options;
 	int counter = 0, generation = 0, name_prefix_len = 0;
 	struct commit_list *parents;
 	int res;
@@ -380,8 +385,8 @@ static int fsck_walk_commit(struct commit *commit, void *data, struct fsck_optio
 		fsck_put_object_name(options, get_commit_tree_oid(commit),
 				     "%s:", name);
 
-	result = options->walk((struct object *) repo_get_commit_tree(the_repository, commit),
-			       OBJ_TREE, data, options);
+	result = objs_options->walk((struct object *) repo_get_commit_tree(the_repository, commit),
+				    OBJ_TREE, data, options);
 	if (result < 0)
 		return result;
 	res = result;
@@ -423,7 +428,8 @@ static int fsck_walk_commit(struct commit *commit, void *data, struct fsck_optio
 			else
 				fsck_put_object_name(options, oid, "%s^", name);
 		}
-		result = options->walk((struct object *)parents->item, OBJ_COMMIT, data, options);
+		result = objs_options->walk((struct object *)parents->item,
+					    OBJ_COMMIT, data, options);
 		if (result < 0)
 			return result;
 		if (!res)
@@ -436,12 +442,13 @@ static int fsck_walk_commit(struct commit *commit, void *data, struct fsck_optio
 static int fsck_walk_tag(struct tag *tag, void *data, struct fsck_options *options)
 {
 	const char *name = fsck_get_object_name(options, &tag->object.oid);
+	struct fsck_objs_options *objs_options = &options->objs_options;
 
 	if (parse_tag(tag))
 		return -1;
 	if (name)
 		fsck_put_object_name(options, &tag->tagged->oid, "%s", name);
-	return options->walk(tag->tagged, OBJ_ANY, data, options);
+	return objs_options->walk(tag->tagged, OBJ_ANY, data, options);
 }
 
 int fsck_walk(struct object *obj, void *data, struct fsck_options *options)
@@ -598,6 +605,7 @@ static int fsck_tree(const struct object_id *tree_oid,
 	unsigned o_mode;
 	const char *o_name;
 	struct name_stack df_dup_candidates = { NULL };
+	struct fsck_objs_options *objs_options = &options->objs_options;
 
 	if (init_tree_desc_gently(&desc, tree_oid, buffer, size,
 				  TREE_DESC_RAW_MODES)) {
@@ -628,7 +636,7 @@ static int fsck_tree(const struct object_id *tree_oid,
 
 		if (is_hfs_dotgitmodules(name) || is_ntfs_dotgitmodules(name)) {
 			if (!S_ISLNK(mode))
-				oidset_insert(&options->gitmodules_found,
+				oidset_insert(&objs_options->gitmodules_found,
 					      entry_oid);
 			else
 				retval += report(options,
@@ -639,7 +647,7 @@ static int fsck_tree(const struct object_id *tree_oid,
 
 		if (is_hfs_dotgitattributes(name) || is_ntfs_dotgitattributes(name)) {
 			if (!S_ISLNK(mode))
-				oidset_insert(&options->gitattributes_found,
+				oidset_insert(&objs_options->gitattributes_found,
 					      entry_oid);
 			else
 				retval += report(options, tree_oid, OBJ_TREE,
@@ -666,7 +674,7 @@ static int fsck_tree(const struct object_id *tree_oid,
 				has_dotgit |= is_ntfs_dotgit(backslash);
 				if (is_ntfs_dotgitmodules(backslash)) {
 					if (!S_ISLNK(mode))
-						oidset_insert(&options->gitmodules_found,
+						oidset_insert(&objs_options->gitmodules_found,
 							      entry_oid);
 					else
 						retval += report(options, tree_oid, OBJ_TREE,
@@ -1102,16 +1110,17 @@ static int fsck_gitmodules_fn(const char *var, const char *value,
 static int fsck_blob(const struct object_id *oid, const char *buf,
 		     unsigned long size, struct fsck_options *options)
 {
+	struct fsck_objs_options *objs_options = &options->objs_options;
 	int ret = 0;
 
 	if (object_on_skiplist(options, oid))
 		return 0;
 
-	if (oidset_contains(&options->gitmodules_found, oid)) {
+	if (oidset_contains(&objs_options->gitmodules_found, oid)) {
 		struct config_options config_opts = { 0 };
 		struct fsck_gitmodules_data data;
 
-		oidset_insert(&options->gitmodules_done, oid);
+		oidset_insert(&objs_options->gitmodules_done, oid);
 
 		if (!buf) {
 			/*
@@ -1137,13 +1146,14 @@ static int fsck_blob(const struct object_id *oid, const char *buf,
 		ret |= data.ret;
 	}
 
-	if (oidset_contains(&options->gitattributes_found, oid)) {
+	if (oidset_contains(&objs_options->gitattributes_found, oid)) {
 		const char *ptr;
 
-		oidset_insert(&options->gitattributes_done, oid);
+		oidset_insert(&objs_options->gitattributes_done, oid);
 
 		if (!buf || size > ATTR_MAX_FILE_SIZE) {
 			/*
+
 			 * A missing buffer here is a sign that the caller found the
 			 * blob too gigantic to load into memory. Let's just consider
 			 * that an error.
@@ -1195,6 +1205,20 @@ int fsck_buffer(const struct object_id *oid, enum object_type type,
 		      FSCK_MSG_UNKNOWN_TYPE,
 		      "unknown type '%d' (internal fsck error)",
 		      type);
+}
+
+int fsck_refs_error_function(struct fsck_options *o UNUSED,
+			     const char *name,
+			     enum fsck_msg_type msg_type,
+			     enum fsck_msg_id msg_id UNUSED,
+			     const char *message)
+{
+	if (msg_type == FSCK_WARN) {
+		warning("%s: %s", name, message);
+		return 0;
+	}
+	error("%s: %s", name, message);
+	return 1;
 }
 
 int fsck_error_function(struct fsck_options *o,
@@ -1255,14 +1279,47 @@ static int fsck_blobs(struct oidset *blobs_found, struct oidset *blobs_done,
 
 int fsck_finish(struct fsck_options *options)
 {
+	struct fsck_objs_options *objs_options = &options->objs_options;
 	int ret = 0;
 
-	ret |= fsck_blobs(&options->gitmodules_found, &options->gitmodules_done,
+	ret |= fsck_blobs(&objs_options->gitmodules_found,
+			  &objs_options->gitmodules_done,
 			  FSCK_MSG_GITMODULES_MISSING, FSCK_MSG_GITMODULES_BLOB,
 			  options, ".gitmodules");
-	ret |= fsck_blobs(&options->gitattributes_found, &options->gitattributes_done,
+	ret |= fsck_blobs(&objs_options->gitattributes_found,
+			  &objs_options->gitattributes_done,
 			  FSCK_MSG_GITATTRIBUTES_MISSING, FSCK_MSG_GITATTRIBUTES_BLOB,
 			  options, ".gitattributes");
+
+	return ret;
+}
+
+int fsck_refs_report(struct fsck_options *o,
+		     const char *name,
+		     enum fsck_msg_id msg_id,
+		     const char *fmt, ...)
+{
+	va_list ap;
+	struct strbuf sb = STRBUF_INIT;
+	enum fsck_msg_type msg_type = fsck_msg_type(msg_id, o);
+	int ret = 0;
+
+	if (msg_type == FSCK_IGNORE)
+		return 0;
+
+	if (msg_type == FSCK_FATAL)
+		msg_type = FSCK_ERROR;
+	else if (msg_type == FSCK_INFO)
+		msg_type = FSCK_WARN;
+
+	prepare_msg_ids();
+	strbuf_addf(&sb, "%s: ", msg_id_info[msg_id].camelcased);
+
+	va_start(ap, fmt);
+	strbuf_vaddf(&sb, fmt, ap);
+	ret = o->refs_options.error_func(o, name, msg_type, msg_id, sb.buf);
+	strbuf_release(&sb);
+	va_end(ap);
 
 	return ret;
 }

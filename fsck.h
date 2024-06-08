@@ -104,6 +104,21 @@ void fsck_set_msg_types(struct fsck_options *options, const char *values);
 int is_valid_msg_type(const char *msg_id, const char *msg_type);
 
 /*
+ * callback function for fsck refs and reflogs.
+ */
+typedef int (*fsck_refs_error)(struct fsck_options *o,
+			       const char *name,
+			       enum fsck_msg_type msg_type,
+			       enum fsck_msg_id msg_id,
+			       const char *message);
+
+int fsck_refs_error_function(struct fsck_options *o,
+			     const char *name,
+			     enum fsck_msg_type msg_type,
+			     enum fsck_msg_id msg_id,
+			     const char *message);
+
+/*
  * callback function for fsck_walk
  * type is the expected type of the object or OBJ_ANY
  * the return value is:
@@ -115,10 +130,12 @@ typedef int (*fsck_walk_func)(struct object *obj, enum object_type object_type,
 			      void *data, struct fsck_options *options);
 
 /* callback for fsck_object, type is FSCK_ERROR or FSCK_WARN */
-typedef int (*fsck_error)(struct fsck_options *o,
-			  const struct object_id *oid, enum object_type object_type,
-			  enum fsck_msg_type msg_type, enum fsck_msg_id msg_id,
-			  const char *message);
+typedef int (*fsck_obj_error)(struct fsck_options *o,
+			      const struct object_id *oid,
+			      enum object_type object_type,
+			      enum fsck_msg_type msg_type,
+			      enum fsck_msg_id msg_id,
+			      const char *message);
 
 int fsck_error_function(struct fsck_options *o,
 			const struct object_id *oid, enum object_type object_type,
@@ -131,11 +148,17 @@ int fsck_error_cb_print_missing_gitmodules(struct fsck_options *o,
 					   enum fsck_msg_id msg_id,
 					   const char *message);
 
-struct fsck_options {
+struct fsck_refs_options {
+	fsck_refs_error error_func;
+};
+
+#define FSCK_REFS_OPTIONS_DEFAULT { \
+	.error_func = fsck_refs_error_function, \
+}
+
+struct fsck_objs_options {
 	fsck_walk_func walk;
-	fsck_error error_func;
-	unsigned strict:1;
-	enum fsck_msg_type *msg_type;
+	fsck_obj_error error_func;
 	struct oidset skiplist;
 	struct oidset gitmodules_found;
 	struct oidset gitmodules_done;
@@ -144,29 +167,43 @@ struct fsck_options {
 	kh_oid_map_t *object_names;
 };
 
-#define FSCK_OPTIONS_DEFAULT { \
+#define FSCK_OBJS_OPTIONS_DEFAULT { \
+	.error_func = fsck_error_function, \
 	.skiplist = OIDSET_INIT, \
 	.gitmodules_found = OIDSET_INIT, \
 	.gitmodules_done = OIDSET_INIT, \
 	.gitattributes_found = OIDSET_INIT, \
 	.gitattributes_done = OIDSET_INIT, \
-	.error_func = fsck_error_function \
+}
+#define FSCK_OBJS_OPTIONS_MISSING_GITMODULES { \
+	.error_func = fsck_error_cb_print_missing_gitmodules, \
+	.gitmodules_found = OIDSET_INIT, \
+	.gitmodules_done = OIDSET_INIT, \
+	.gitattributes_found = OIDSET_INIT, \
+	.gitattributes_done = OIDSET_INIT, \
+}
+
+struct fsck_options {
+	struct fsck_refs_options refs_options;
+	struct fsck_objs_options objs_options;
+	enum fsck_msg_type *msg_type;
+	unsigned strict:1,
+		 verbose:1;
+};
+
+#define FSCK_OPTIONS_DEFAULT { \
+	.refs_options = FSCK_REFS_OPTIONS_DEFAULT, \
+	.objs_options = FSCK_OBJS_OPTIONS_DEFAULT, \
 }
 #define FSCK_OPTIONS_STRICT { \
+	.refs_options = FSCK_REFS_OPTIONS_DEFAULT, \
+	.objs_options = FSCK_OBJS_OPTIONS_DEFAULT, \
 	.strict = 1, \
-	.gitmodules_found = OIDSET_INIT, \
-	.gitmodules_done = OIDSET_INIT, \
-	.gitattributes_found = OIDSET_INIT, \
-	.gitattributes_done = OIDSET_INIT, \
-	.error_func = fsck_error_function, \
 }
 #define FSCK_OPTIONS_MISSING_GITMODULES { \
+	.refs_options = FSCK_REFS_OPTIONS_DEFAULT, \
+	.objs_options = FSCK_OBJS_OPTIONS_MISSING_GITMODULES, \
 	.strict = 1, \
-	.gitmodules_found = OIDSET_INIT, \
-	.gitmodules_done = OIDSET_INIT, \
-	.gitattributes_found = OIDSET_INIT, \
-	.gitattributes_done = OIDSET_INIT, \
-	.error_func = fsck_error_cb_print_missing_gitmodules, \
 }
 
 /* descend in all linked child objects
@@ -208,6 +245,12 @@ int fsck_tag_standalone(const struct object_id *oid, const char *buffer,
  * checks.
  */
 int fsck_finish(struct fsck_options *options);
+
+__attribute__((format (printf, 4, 5)))
+int fsck_refs_report(struct fsck_options *o,
+		     const char *name,
+		     enum fsck_msg_id msg_id,
+		     const char *fmt, ...);
 
 /*
  * Subsystem for storing human-readable names for each object.

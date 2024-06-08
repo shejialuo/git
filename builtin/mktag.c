@@ -91,8 +91,9 @@ int cmd_mktag(int argc, const char **argv, const char *prefix)
 	if (strbuf_read(&buf, 0, 0) < 0)
 		die_errno(_("could not read from stdin"));
 
-	fsck_options.error_func = mktag_fsck_error_func;
-	fsck_set_msg_type_from_ids(&fsck_options, FSCK_MSG_EXTRA_HEADER_ENTRY,
+	fsck_options.objs_options.error_func = mktag_fsck_error_func;
+	fsck_set_msg_type_from_ids(&fsck_options,
+				   FSCK_MSG_EXTRA_HEADER_ENTRY,
 				   FSCK_WARN);
 	/* config might set fsck.extraHeaderEntry=* again */
 	git_config(git_fsck_config, &fsck_options);

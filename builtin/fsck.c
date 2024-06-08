@@ -233,7 +233,7 @@ static void mark_unreachable_referents(const struct object_id *oid)
 			object_as_type(obj, type, 0);
 	}
 
-	options.walk = mark_used;
+	options.objs_options.walk = mark_used;
 	fsck_walk(obj, NULL, &options);
 	if (obj->type == OBJ_TREE)
 		free_tree_buffer((struct tree *)obj);
@@ -936,9 +936,9 @@ int cmd_fsck(int argc, const char **argv, const char *prefix)
 
 	argc = parse_options(argc, argv, prefix, fsck_opts, fsck_usage, 0);
 
-	fsck_walk_options.walk = mark_object;
-	fsck_obj_options.walk = mark_used;
-	fsck_obj_options.error_func = fsck_error_func;
+	fsck_walk_options.objs_options.walk = mark_object;
+	fsck_obj_options.objs_options.walk = mark_used;
+	fsck_obj_options.objs_options.error_func = fsck_error_func;
 	if (check_strict)
 		fsck_obj_options.strict = 1;
 

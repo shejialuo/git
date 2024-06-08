@@ -2510,7 +2510,7 @@ static int index_mem(struct index_state *istate,
 		struct fsck_options opts = FSCK_OPTIONS_DEFAULT;
 
 		opts.strict = 1;
-		opts.error_func = hash_format_check_report;
+		opts.objs_options.error_func = hash_format_check_report;
 		if (fsck_buffer(null_oid(), type, buf, size, &opts))
 			die(_("refusing to create malformed object"));
 		fsck_finish(&opts);
