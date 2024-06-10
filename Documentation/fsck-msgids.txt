@@ -22,6 +22,9 @@
 `badRefName`::
 	(ERROR) A ref has a bad name.
 
+`badRefSha`::
+	(ERROR) A ref has a bad sha.
+
 `badTagName`::
 	(INFO) A tag has an invalid format.
 
@@ -36,6 +39,9 @@
 
 `badType`::
 	(ERROR) Found an invalid object type.
+
+`danglingSymref`::
+	(WARN) Found a dangling symref.
 
 `duplicateEntries`::
 	(ERROR) A tree contains duplicate file entries.
@@ -178,6 +184,9 @@
 
 `symlinkTargetMissing`::
 	(ERROR) Unable to read symbolic link target's blob.
+
+`trailingRefContent`::
+	(WARN) A ref content has trailing contents.
 
 `treeNotSorted`::
 	(ERROR) A tree is not properly sorted.
