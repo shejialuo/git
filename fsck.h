@@ -114,7 +114,9 @@ int is_valid_msg_type(const char *msg_id, const char *msg_type);
 typedef int (*fsck_walk_func)(struct object *obj, enum object_type object_type,
 			      void *data, struct fsck_options *options);
 
-/* callback for fsck_object, type is FSCK_ERROR or FSCK_WARN */
+/*
+ * callback function for reporting errors when checking either objects or refs
+ */
 typedef int (*fsck_error)(struct fsck_options *o,
 			  const struct object_id *oid, enum object_type object_type,
 			  enum fsck_msg_type msg_type, enum fsck_msg_id msg_id,
@@ -131,11 +133,24 @@ int fsck_error_cb_print_missing_gitmodules(struct fsck_options *o,
 					   enum fsck_msg_id msg_id,
 					   const char *message);
 
+/*
+ * The information for reporting refs-related error message
+ */
+struct fsck_refs_info {
+	char *ref_checkee;
+	union {
+		struct {
+			char *sub_ref_checkee;
+		} files;
+	} u;
+};
+
 struct fsck_options {
 	fsck_walk_func walk;
 	fsck_error error_func;
 	unsigned strict:1;
 	enum fsck_msg_type *msg_type;
+	struct fsck_refs_info refs_info;
 	struct oidset skip_oids;
 	struct oidset gitmodules_found;
 	struct oidset gitmodules_done;
@@ -208,6 +223,15 @@ int fsck_tag_standalone(const struct object_id *oid, const char *buffer,
  * checks.
  */
 int fsck_finish(struct fsck_options *options);
+
+/*
+ * Report an error or warning for refs.
+ */
+__attribute__((format (printf, 4, 5)))
+int fsck_refs_report(struct fsck_options *options,
+		     const struct object_id *oid,
+		     enum fsck_msg_id msg_id,
+		     const char *fmt, ...);
 
 /*
  * Subsystem for storing human-readable names for each object.
