@@ -152,6 +152,12 @@ struct fsck_ref_report {
 	const char *referent;
 };
 
+#define FSCK_REF_REPORT_DEFAULT { \
+	.path = NULL, \
+	.oid = NULL, \
+	.referent = NULL, \
+}
+
 struct fsck_options {
 	fsck_walk_func walk;
 	fsck_error error_func;
