@@ -3434,12 +3434,92 @@ typedef int (*files_fsck_refs_fn)(struct ref_store *ref_store,
 				  const char *refs_check_dir,
 				  struct dir_iterator *iter);
 
+/*
+ * Check the symref "pointee_name" and "pointee_path". The caller should
+ * make sure that "pointee_path" is absolute. For symbolic ref, "pointee_name"
+ * would be the content after "refs:".
+ */
+static int files_fsck_symref_target(struct fsck_options *o,
+				    struct fsck_ref_report *report,
+				    const char *refname,
+				    struct strbuf *pointee_name,
+				    struct strbuf *pointee_path)
+{
+	unsigned int newline_num = 0;
+	unsigned int space_num = 0;
+	const char *p = NULL;
+	struct stat st;
+	int ret = 0;
+
+	if (!skip_prefix(pointee_name->buf, "refs/", &p)) {
+
+		ret = fsck_report_ref(o, report,
+				      FSCK_MSG_BAD_SYMREF_POINTEE,
+				      "points to ref outside the refs directory");
+		goto out;
+	}
+
+	while (*p != '\0') {
+		if ((space_num || newline_num) && !isspace(*p)) {
+			ret = fsck_report_ref(o, report,
+					      FSCK_MSG_BAD_REF_CONTENT,
+					      "contains non-null garbage");
+			goto out;
+		}
+
+		if (*p == '\n') {
+			newline_num++;
+		} else if (*p == ' ') {
+			space_num++;
+		}
+		p++;
+	}
+
+	if (space_num || newline_num > 1) {
+		ret = fsck_report_ref(o, report,
+				      FSCK_MSG_TRAILING_REF_CONTENT,
+				      "trailing null-garbage");
+	} else if (!newline_num) {
+		ret = fsck_report_ref(o, report,
+				      FSCK_MSG_REF_MISSING_NEWLINE,
+				      "missing newline");
+	}
+
+	strbuf_rtrim(pointee_name);
+
+	if (check_refname_format(pointee_name->buf, 0)) {
+		ret = fsck_report_ref(o, report,
+				      FSCK_MSG_BAD_SYMREF_POINTEE,
+				      "points to refname with invalid format");
+	}
+
+	/*
+	 * Missing target should not be treated as any error worthy event and
+	 * not even warn. It is a common case that a symbolic ref points to a
+	 * ref that does not exist yet. If the target ref does not exist, just
+	 * skip the check for the file type.
+	 */
+	if (lstat(pointee_path->buf, &st) < 0)
+		goto out;
+
+	if (!S_ISREG(st.st_mode) && !S_ISLNK(st.st_mode)) {
+		ret = fsck_report_ref(o, report,
+				      FSCK_MSG_BAD_SYMREF_POINTEE,
+				      "points to an invalid file type");
+		goto out;
+	}
+
+out:
+	return ret;
+}
+
 static int files_fsck_refs_content(struct ref_store *ref_store,
 				   struct fsck_options *o,
 				   const char *refs_check_dir,
 				   struct dir_iterator *iter)
 {
 	struct fsck_ref_report report = FSCK_REF_REPORT_DEFAULT;
+	struct strbuf pointee_path = STRBUF_INIT;
 	struct strbuf ref_content = STRBUF_INIT;
 	struct strbuf referent = STRBUF_INIT;
 	struct strbuf refname = STRBUF_INIT;
@@ -3482,6 +3562,12 @@ static int files_fsck_refs_content(struct ref_store *ref_store,
 						      "trailing garbage in ref");
 				goto cleanup;
 			}
+		} else {
+			strbuf_addf(&pointee_path, "%s/%s",
+				    ref_store->gitdir, referent.buf);
+			ret = files_fsck_symref_target(o, &report, refname.buf,
+						       &referent,
+						       &pointee_path);
 		}
 	}
 
@@ -3489,6 +3575,7 @@ cleanup:
 	strbuf_release(&refname);
 	strbuf_release(&ref_content);
 	strbuf_release(&referent);
+	strbuf_release(&pointee_path);
 	return ret;
 }
 
