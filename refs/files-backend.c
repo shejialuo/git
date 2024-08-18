@@ -1,4 +1,5 @@
 #include "../git-compat-util.h"
+#include "../abspath.h"
 #include "../copy.h"
 #include "../environment.h"
 #include "../gettext.h"
@@ -3437,13 +3438,15 @@ typedef int (*files_fsck_refs_fn)(struct ref_store *ref_store,
 /*
  * Check the symref "pointee_name" and "pointee_path". The caller should
  * make sure that "pointee_path" is absolute. For symbolic ref, "pointee_name"
- * would be the content after "refs:".
+ * would be the content after "refs:". For symblic link, "pointee_name" would
+ * be the relative path agaignst "gitdir".
  */
 static int files_fsck_symref_target(struct fsck_options *o,
 				    struct fsck_ref_report *report,
 				    const char *refname,
 				    struct strbuf *pointee_name,
-				    struct strbuf *pointee_path)
+				    struct strbuf *pointee_path,
+				    unsigned int symbolic_link)
 {
 	unsigned int newline_num = 0;
 	unsigned int space_num = 0;
@@ -3459,33 +3462,35 @@ static int files_fsck_symref_target(struct fsck_options *o,
 		goto out;
 	}
 
-	while (*p != '\0') {
-		if ((space_num || newline_num) && !isspace(*p)) {
+	if (!symbolic_link) {
+		while (*p != '\0') {
+			if ((space_num || newline_num) && !isspace(*p)) {
+				ret = fsck_report_ref(o, report,
+						      FSCK_MSG_BAD_REF_CONTENT,
+						      "contains non-null garbage");
+				goto out;
+			}
+
+			if (*p == '\n') {
+				newline_num++;
+			} else if (*p == ' ') {
+				space_num++;
+			}
+			p++;
+		}
+
+		if (space_num || newline_num > 1) {
 			ret = fsck_report_ref(o, report,
-					      FSCK_MSG_BAD_REF_CONTENT,
-					      "contains non-null garbage");
-			goto out;
+					      FSCK_MSG_TRAILING_REF_CONTENT,
+					      "trailing null-garbage");
+		} else if (!newline_num) {
+			ret = fsck_report_ref(o, report,
+					      FSCK_MSG_REF_MISSING_NEWLINE,
+					      "missing newline");
 		}
 
-		if (*p == '\n') {
-			newline_num++;
-		} else if (*p == ' ') {
-			space_num++;
-		}
-		p++;
+		strbuf_rtrim(pointee_name);
 	}
-
-	if (space_num || newline_num > 1) {
-		ret = fsck_report_ref(o, report,
-				      FSCK_MSG_TRAILING_REF_CONTENT,
-				      "trailing null-garbage");
-	} else if (!newline_num) {
-		ret = fsck_report_ref(o, report,
-				      FSCK_MSG_REF_MISSING_NEWLINE,
-				      "missing newline");
-	}
-
-	strbuf_rtrim(pointee_name);
 
 	if (check_refname_format(pointee_name->buf, 0)) {
 		ret = fsck_report_ref(o, report,
@@ -3521,8 +3526,10 @@ static int files_fsck_refs_content(struct ref_store *ref_store,
 	struct fsck_ref_report report = FSCK_REF_REPORT_DEFAULT;
 	struct strbuf pointee_path = STRBUF_INIT;
 	struct strbuf ref_content = STRBUF_INIT;
+	struct strbuf abs_gitdir = STRBUF_INIT;
 	struct strbuf referent = STRBUF_INIT;
 	struct strbuf refname = STRBUF_INIT;
+	unsigned int symbolic_link = 0;
 	const char *trailing = NULL;
 	unsigned int type = 0;
 	int failure_errno = 0;
@@ -3567,8 +3574,32 @@ static int files_fsck_refs_content(struct ref_store *ref_store,
 				    ref_store->gitdir, referent.buf);
 			ret = files_fsck_symref_target(o, &report, refname.buf,
 						       &referent,
-						       &pointee_path);
+						       &pointee_path,
+						       symbolic_link);
 		}
+	} else if (S_ISLNK(iter->st.st_mode)) {
+		const char *pointee_name = NULL;
+
+		symbolic_link = 1;
+
+		strbuf_add_real_path(&pointee_path, iter->path.buf);
+		strbuf_add_absolute_path(&abs_gitdir, ref_store->gitdir);
+		strbuf_normalize_path(&abs_gitdir);
+		if (!is_dir_sep(abs_gitdir.buf[abs_gitdir.len - 1]))
+			strbuf_addch(&abs_gitdir, '/');
+
+		if (!skip_prefix(pointee_path.buf,
+				 abs_gitdir.buf, &pointee_name)) {
+			ret = fsck_report_ref(o, &report,
+					       FSCK_MSG_BAD_SYMREF_POINTEE,
+					       "point to target outside gitdir");
+			goto cleanup;
+		}
+
+		strbuf_addstr(&referent, pointee_name);
+		ret = files_fsck_symref_target(o, &report, refname.buf,
+					       &referent, &pointee_path,
+					       symbolic_link);
 	}
 
 cleanup:
@@ -3576,6 +3607,7 @@ cleanup:
 	strbuf_release(&ref_content);
 	strbuf_release(&referent);
 	strbuf_release(&pointee_path);
+	strbuf_release(&abs_gitdir);
 	return ret;
 }
 
