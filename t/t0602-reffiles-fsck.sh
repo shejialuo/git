@@ -176,4 +176,58 @@ test_expect_success 'regular ref content should be checked' '
 	test_cmp expect err
 '
 
+test_expect_success 'symbolic ref content should be checked' '
+	test_when_finished "rm -rf repo" &&
+	git init repo &&
+	branch_dir_prefix=.git/refs/heads &&
+	tag_dir_prefix=.git/refs/tags &&
+	cd repo &&
+	git commit --allow-empty -m initial &&
+	git checkout -b branch-1 &&
+	git tag tag-1 &&
+	git checkout -b a/b/branch-2 &&
+
+	printf "ref: refs/heads/branch" > $branch_dir_prefix/branch-1-no-newline &&
+	git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	warning: refs/heads/branch-1-no-newline: refMissingNewline: missing newline
+	EOF
+	rm $branch_dir_prefix/branch-1-no-newline &&
+	test_cmp expect err &&
+
+	printf "ref: refs/heads/branch     " > $branch_dir_prefix/a/b/branch-trailing &&
+	git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	warning: refs/heads/a/b/branch-trailing: refMissingNewline: missing newline
+	warning: refs/heads/a/b/branch-trailing: trailingRefContent: trailing null-garbage
+	EOF
+	rm $branch_dir_prefix/a/b/branch-trailing &&
+	test_cmp expect err &&
+
+	printf "ref: refs/heads/branch\n\n" > $branch_dir_prefix/a/b/branch-trailing &&
+	git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	warning: refs/heads/a/b/branch-trailing: trailingRefContent: trailing null-garbage
+	EOF
+	rm $branch_dir_prefix/a/b/branch-trailing &&
+	test_cmp expect err &&
+
+	printf "ref: refs/heads/branch \n\n " > $branch_dir_prefix/a/b/branch-trailing &&
+	git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	warning: refs/heads/a/b/branch-trailing: refMissingNewline: missing newline
+	warning: refs/heads/a/b/branch-trailing: trailingRefContent: trailing null-garbage
+	EOF
+	rm $branch_dir_prefix/a/b/branch-trailing &&
+	test_cmp expect err &&
+
+	printf "ref: refs/heads/.branch\n" > $branch_dir_prefix/branch-2-bad &&
+	test_must_fail git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	error: refs/heads/branch-2-bad: badSymrefPointee: points to refname with invalid format
+	EOF
+	rm $branch_dir_prefix/branch-2-bad &&
+	test_cmp expect err
+'
+
 test_done
