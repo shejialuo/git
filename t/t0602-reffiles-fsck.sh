@@ -230,4 +230,48 @@ test_expect_success 'symbolic ref content should be checked' '
 	test_cmp expect err
 '
 
+test_expect_success SYMLINKS 'symbolic ref (symbolic link) content should be checked' '
+	test_when_finished "rm -rf repo" &&
+	git init repo &&
+	branch_dir_prefix=.git/refs/heads &&
+	tag_dir_prefix=.git/refs/tags &&
+	cd repo &&
+	git commit --allow-empty -m initial &&
+	git checkout -b branch-1 &&
+	git tag tag-1 &&
+	git checkout -b a/b/branch-2 &&
+
+	ln -sf ../../../../branch $branch_dir_prefix/branch-symbolic &&
+	test_must_fail git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	error: refs/heads/branch-symbolic: badSymrefPointee: point to target outside gitdir
+	EOF
+	rm $branch_dir_prefix/branch-symbolic &&
+	test_cmp expect err &&
+
+	ln -sf ../../logs/branch-bad $branch_dir_prefix/branch-symbolic &&
+	test_must_fail git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	error: refs/heads/branch-symbolic: badSymrefPointee: points to ref outside the refs directory
+	EOF
+	rm $branch_dir_prefix/branch-symbolic &&
+	test_cmp expect err &&
+
+	ln -sf ./"branch   space" $branch_dir_prefix/branch-symbolic &&
+	test_must_fail git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	error: refs/heads/branch-symbolic: badSymrefPointee: points to refname with invalid format
+	EOF
+	rm $branch_dir_prefix/branch-symbolic &&
+	test_cmp expect err &&
+
+	ln -sf ./".branch" $branch_dir_prefix/branch-symbolic &&
+	test_must_fail git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	error: refs/heads/branch-symbolic: badSymrefPointee: points to refname with invalid format
+	EOF
+	rm $branch_dir_prefix/branch-symbolic &&
+	test_cmp expect err
+'
+
 test_done
