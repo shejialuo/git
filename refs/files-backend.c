@@ -3520,10 +3520,11 @@ static int files_fsck_symref_target(struct fsck_options *o,
 	orig_last_byte = referent->buf[orig_len - 1];
 	strbuf_rtrim(referent);
 
-	if (!starts_with(referent->buf, "refs/")) {
+	if (!starts_with(referent->buf, "refs/") &&
+	    !starts_with(referent->buf, "worktrees/")) {
 		ret = fsck_report_ref(o, report,
 				      FSCK_MSG_ESCAPE_REFERENT,
-				      "referent '%s' is outside of refs/",
+				      "referent '%s' is outside of refs/ or worktrees/",
 				      referent->buf);
 	}
 

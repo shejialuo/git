@@ -382,10 +382,42 @@ test_expect_success 'textual symref should be checked whether it is escaped' '
 	printf "ref: refs-back/heads/main\n" >$branch_dir_prefix/branch-bad-1 &&
 	git refs verify 2>err &&
 	cat >expect <<-EOF &&
-	warning: refs/heads/branch-bad-1: escapeReferent: referent '\''refs-back/heads/main'\'' is outside of refs/
+	warning: refs/heads/branch-bad-1: escapeReferent: referent '\''refs-back/heads/main'\'' is outside of refs/ or worktrees/
 	EOF
 	rm $branch_dir_prefix/branch-bad-1 &&
 	test_cmp expect err
+'
+
+test_expect_success 'textual symref escape check should work with worktrees' '
+	test_when_finished "rm -rf repo" &&
+	git init repo &&
+	cd repo &&
+	test_commit default &&
+	git branch branch-1 &&
+	git branch branch-2 &&
+	git branch branch-3 &&
+	git worktree add ./worktree-1 branch-2 &&
+	git worktree add ./worktree-2 branch-3 &&
+
+	(
+		cd worktree-1 &&
+		git branch refs/worktree/w1-branch &&
+		git symbolic-ref refs/worktree/branch-4 refs/heads/branch-1 &&
+		git symbolic-ref refs/worktree/branch-5 worktrees/worktree-2/refs/worktree/w2-branch
+	) &&
+	(
+		cd worktree-2 &&
+		git branch refs/worktree/w2-branch &&
+		git symbolic-ref refs/worktree/branch-4 refs/heads/branch-1 &&
+		git symbolic-ref refs/worktree/branch-5 worktrees/worktree-1/refs/worktree/w1-branch
+	) &&
+
+
+	git symbolic-ref refs/heads/branch-5 worktrees/worktree-1/refs/worktree/w1-branch &&
+	git symbolic-ref refs/heads/branch-6 worktrees/worktree-2/refs/worktree/w2-branch &&
+
+	git refs verify 2>err &&
+	test_must_be_empty err
 '
 
 test_done
