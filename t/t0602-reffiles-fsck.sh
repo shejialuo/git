@@ -420,4 +420,70 @@ test_expect_success 'textual symref escape check should work with worktrees' '
 	test_must_be_empty err
 '
 
+test_expect_success 'all textual symref checks should work with worktrees' '
+	test_when_finished "rm -rf repo" &&
+	git init repo &&
+	cd repo &&
+	test_commit default &&
+	git branch branch-1 &&
+	git branch branch-2 &&
+	git branch branch-3 &&
+	git worktree add ./worktree-1 branch-2 &&
+	git worktree add ./worktree-2 branch-3 &&
+	worktree1_refdir_prefix=.git/worktrees/worktree-1/refs/worktree &&
+	worktree2_refdir_prefix=.git/worktrees/worktree-2/refs/worktree &&
+
+	(
+		cd worktree-1 &&
+		git update-ref refs/worktree/branch-4 refs/heads/branch-1
+	) &&
+	(
+		cd worktree-2 &&
+		git update-ref refs/worktree/branch-4 refs/heads/branch-1
+	) &&
+
+	bad_content_1=$(git rev-parse HEAD)x &&
+	bad_content_2=xfsazqfxcadas &&
+	bad_content_3=Xfsazqfxcadas &&
+
+	printf "%s" $bad_content_1 >$worktree1_refdir_prefix/bad-branch-1 &&
+	test_must_fail git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	error: refs/worktree/bad-branch-1: badRefContent: $bad_content_1
+	EOF
+	rm $worktree1_refdir_prefix/bad-branch-1 &&
+	test_cmp expect err &&
+
+	printf "%s" $bad_content_2 >$worktree2_refdir_prefix/bad-branch-2 &&
+	test_must_fail git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	error: refs/worktree/bad-branch-2: badRefContent: $bad_content_2
+	EOF
+	rm $worktree2_refdir_prefix/bad-branch-2 &&
+	test_cmp expect err &&
+
+	printf "%s" $bad_content_3 >$worktree1_refdir_prefix/bad-branch-3 &&
+	test_must_fail git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	error: refs/worktree/bad-branch-3: badRefContent: $bad_content_3
+	EOF
+	rm $worktree1_refdir_prefix/bad-branch-3 &&
+	test_cmp expect err &&
+
+	printf "%s" "$(git rev-parse HEAD)" >$worktree1_refdir_prefix/branch-no-newline &&
+	git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	warning: refs/worktree/branch-no-newline: unofficialFormattedRef: misses LF at the end
+	EOF
+	rm $worktree1_refdir_prefix/branch-no-newline &&
+	test_cmp expect err &&
+
+	printf "%s garbage" "$(git rev-parse HEAD)" >$worktree2_refdir_prefix/branch-garbage &&
+	git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	warning: refs/worktree/branch-garbage: unofficialFormattedRef: has trailing garbage: '\'' garbage'\''
+	EOF
+	rm $worktree2_refdir_prefix/branch-garbage
+'
+
 test_done
