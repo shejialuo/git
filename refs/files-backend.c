@@ -3558,7 +3558,7 @@ static int files_fsck_refs_dir(struct ref_store *ref_store,
 		} else if (S_ISREG(iter->st.st_mode) ||
 			   S_ISLNK(iter->st.st_mode)) {
 			if (o->verbose)
-				fprintf_ln(stderr, "Checking %s/%s",
+				fprintf_ln(stdout, "Checking %s/%s",
 					   refs_check_dir, iter->relative_path);
 			for (size_t i = 0; fsck_refs_fn[i]; i++) {
 				if (fsck_refs_fn[i](ref_store, o, refs_check_dir, iter))
@@ -3589,8 +3589,8 @@ static int files_fsck_refs(struct ref_store *ref_store,
 		NULL,
 	};
 
-	if (o->verbose)
-		fprintf_ln(stderr, _("Checking references consistency"));
+	fprintf_ln(stdout, _("Checking references consistency in %s"),
+		   ref_store->gitdir);
 	return files_fsck_refs_dir(ref_store, o,  "refs", fsck_refs_fn);
 }
 
@@ -3600,8 +3600,16 @@ static int files_fsck(struct ref_store *ref_store,
 	struct files_ref_store *refs =
 		files_downcast(ref_store, REF_STORE_READ, "fsck");
 
-	return files_fsck_refs(ref_store, o) |
-	       refs->packed_ref_store->be->fsck(refs->packed_ref_store, o);
+	int ret = files_fsck_refs(ref_store, o);
+
+	/*
+	 * packed-refs should only be checked once because it is shared
+	 * between all worktrees.
+	 */
+	if (!strcmp(ref_store->gitdir, ref_store->repo->gitdir))
+		ret += refs->packed_ref_store->be->fsck(refs->packed_ref_store, o);
+
+	return ret;
 }
 
 struct ref_storage_be refs_be_files = {
