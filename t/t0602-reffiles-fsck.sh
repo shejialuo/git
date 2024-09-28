@@ -370,4 +370,22 @@ test_expect_success 'textual symref content should be checked (aggregate)' '
 	test_cmp expect sorted_err
 '
 
+test_expect_success 'textual symref should be checked whether it is escaped' '
+	test_when_finished "rm -rf repo" &&
+	git init repo &&
+	branch_dir_prefix=.git/refs/heads &&
+	tag_dir_prefix=.git/refs/tags &&
+	cd repo &&
+	test_commit default &&
+	mkdir -p "$branch_dir_prefix/a/b" &&
+
+	printf "ref: refs-back/heads/main\n" >$branch_dir_prefix/branch-bad-1 &&
+	git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	warning: refs/heads/branch-bad-1: escapeReferent: referent '\''refs-back/heads/main'\'' is outside of refs/
+	EOF
+	rm $branch_dir_prefix/branch-bad-1 &&
+	test_cmp expect err
+'
+
 test_done

@@ -52,6 +52,14 @@
 `emptyName`::
 	(WARN) A path contains an empty name.
 
+`escapeReferent`::
+	(INFO) The referent of a symref is outside the "ref" directory.
+	Although we allow create a symref pointing to the referent which
+	is outside the "ref" by using `git symbolic-ref`, we may tighten
+	the rule in the future. Report to the git@vger.kernel.org
+	mailing list if you see this error, as we need to know what tools
+	created such a file.
+
 `extraHeaderEntry`::
 	(IGNORE) Extra headers found after `tagger`.
 
