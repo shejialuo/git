@@ -179,6 +179,14 @@
 `unknownType`::
 	(ERROR) Found an unknown object type.
 
+`unofficialFormattedRef`::
+	(INFO) The content of a loose ref file is not in the official
+	format such as not having a LF at the end or having trailing
+	garbage. As valid implementations of Git never created such a
+	loose ref file, it may become an error in the future. Report
+	to the git@vger.kernel.org mailing list if you see this error,
+	as we need to know what tools created such a file.
+
 `unterminatedHeader`::
 	(FATAL) Missing end-of-line in the object header.
 
