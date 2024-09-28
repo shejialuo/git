@@ -28,6 +28,9 @@
 `badRefName`::
 	(ERROR) A ref has an invalid format.
 
+`badReferent`::
+	(ERROR) The referent of a ref is invalid.
+
 `badTagName`::
 	(INFO) A tag has an invalid format.
 
