@@ -242,7 +242,7 @@ static void add_per_worktree_entries_to_dir(struct ref_dir *dir, const char *dir
 		pos = search_ref_dir(dir, prefix, prefix_len);
 		if (pos >= 0)
 			continue;
-		child_entry = create_dir_entry(dir->cache, prefix, prefix_len);
+		child_entry = create_dir_entry(dir->cache, prefix);
 		add_entry_to_dir(dir, child_entry);
 	}
 }
@@ -326,8 +326,7 @@ static void loose_fill_ref_dir(struct ref_store *ref_store,
 		if (dtype == DT_DIR) {
 			strbuf_addch(&refname, '/');
 			add_entry_to_dir(dir,
-					 create_dir_entry(dir->cache, refname.buf,
-							  refname.len));
+					 create_dir_entry(dir->cache, refname.buf));
 		} else if (dtype == DT_REG) {
 			loose_fill_ref_dir_regular_file(refs, refname.buf, dir);
 		}
@@ -442,7 +441,7 @@ static struct ref_cache *get_loose_ref_cache(struct files_ref_store *refs,
 		 * Add an incomplete entry for "refs/" (to be filled
 		 * lazily):
 		 */
-		add_entry_to_dir(dir, create_dir_entry(refs->loose, "refs/", 5));
+		add_entry_to_dir(dir, create_dir_entry(refs->loose, "refs/"));
 	}
 	return refs->loose;
 }

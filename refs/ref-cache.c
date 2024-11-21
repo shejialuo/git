@@ -54,7 +54,7 @@ struct ref_cache *create_ref_cache(struct ref_store *refs,
 
 	ret->ref_store = refs;
 	ret->fill_ref_dir = fill_ref_dir;
-	ret->root = create_dir_entry(ret, "", 0);
+	ret->root = create_dir_entry(ret, "");
 	return ret;
 }
 
@@ -94,11 +94,11 @@ static void clear_ref_dir(struct ref_dir *dir)
 }
 
 struct ref_entry *create_dir_entry(struct ref_cache *cache,
-				   const char *dirname, size_t len)
+				   const char *dirname)
 {
 	struct ref_entry *direntry;
 
-	FLEX_ALLOC_MEM(direntry, name, dirname, len);
+	FLEX_ALLOC_STR(direntry, name, dirname);
 	direntry->u.subdir.cache = cache;
 	direntry->flag = REF_DIR | REF_INCOMPLETE;
 	return direntry;
