@@ -20,6 +20,7 @@
 #include "../lockfile.h"
 #include "../object.h"
 #include "../object-file.h"
+#include "../packfile.h"
 #include "../path.h"
 #include "../dir.h"
 #include "../chdir-notify.h"
@@ -3589,6 +3590,34 @@ out:
 	return ret;
 }
 
+static int files_fsck_refs_oid(struct fsck_options *o,
+			       struct ref_store *ref_store,
+			       struct fsck_ref_report report,
+			       const char *target_name,
+			       struct object_id *oid)
+{
+	struct object *obj;
+	int ret = 0;
+
+	if (is_promisor_object(ref_store->repo, oid))
+		return 0;
+
+	obj = parse_object(ref_store->repo, oid);
+	if (!obj) {
+		ret |= fsck_report_ref(o, &report,
+				       FSCK_MSG_BAD_REF_CONTENT,
+				       "points to non-existing object %s",
+				       oid_to_hex(oid));
+	} else if (obj->type != OBJ_COMMIT && is_branch(target_name)) {
+		ret |= fsck_report_ref(o, &report,
+				       FSCK_MSG_BAD_REF_CONTENT,
+				       "points to non-commit object %s",
+				       oid_to_hex(oid));
+	}
+
+	return ret;
+}
+
 static int files_fsck_refs_content(struct ref_store *ref_store,
 				   struct fsck_options *o,
 				   const char *target_name,
@@ -3654,18 +3683,19 @@ static int files_fsck_refs_content(struct ref_store *ref_store,
 	}
 
 	if (!(type & REF_ISSYMREF)) {
+		ret |= files_fsck_refs_oid(o, ref_store, report, target_name, &oid);
+
 		if (!*trailing) {
-			ret = fsck_report_ref(o, &report,
-					      FSCK_MSG_REF_MISSING_NEWLINE,
-					      "misses LF at the end");
-			goto cleanup;
+			ret |= fsck_report_ref(o, &report,
+					       FSCK_MSG_REF_MISSING_NEWLINE,
+					       "misses LF at the end");
+		} else if (*trailing != '\n' || *(trailing + 1)) {
+			ret |= fsck_report_ref(o, &report,
+					       FSCK_MSG_TRAILING_REF_CONTENT,
+					       "has trailing garbage: '%s'", trailing);
 		}
-		if (*trailing != '\n' || *(trailing + 1)) {
-			ret = fsck_report_ref(o, &report,
-					      FSCK_MSG_TRAILING_REF_CONTENT,
-					      "has trailing garbage: '%s'", trailing);
-			goto cleanup;
-		}
+
+		goto cleanup;
 	} else {
 		ret = files_fsck_symref_target(o, &report, &referent, 0);
 		goto cleanup;

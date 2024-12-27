@@ -161,8 +161,10 @@ test_expect_success 'regular ref content should be checked (individual)' '
 	test_when_finished "rm -rf repo" &&
 	git init repo &&
 	branch_dir_prefix=.git/refs/heads &&
+	tag_dir_prefix=.git/refs/tags &&
 	cd repo &&
 	test_commit default &&
+	git branch branch-1 &&
 	mkdir -p "$branch_dir_prefix/a/b" &&
 
 	git refs verify 2>err &&
@@ -197,6 +199,28 @@ test_expect_success 'regular ref content should be checked (individual)' '
 	EOF
 	rm $branch_dir_prefix/branch-no-newline &&
 	test_cmp expect err &&
+
+	for non_existing_oid in "$(test_oid 001)" "$(test_oid 002)"
+	do
+		printf "%s\n" $non_existing_oid >$branch_dir_prefix/invalid-commit &&
+		test_must_fail git refs verify 2>err &&
+		cat >expect <<-EOF &&
+		error: refs/heads/invalid-commit: badRefContent: points to non-existing object $non_existing_oid
+		EOF
+		rm $branch_dir_prefix/invalid-commit &&
+		test_cmp expect err || return 1
+	done &&
+
+	for tree_oid in "$(git rev-parse main^{tree})" "$(git rev-parse branch-1^{tree})"
+	do
+		printf "%s\n" $tree_oid >$branch_dir_prefix/branch-tree &&
+		test_must_fail git refs verify 2>err &&
+		cat >expect <<-EOF &&
+		error: refs/heads/branch-tree: badRefContent: points to non-commit object $tree_oid
+		EOF
+		rm $branch_dir_prefix/branch-tree &&
+		test_cmp expect err || return 1
+	done &&
 
 	for trailing_content in " garbage" "    more garbage"
 	do
@@ -244,15 +268,21 @@ test_expect_success 'regular ref content should be checked (aggregate)' '
 	bad_content_1=$(git rev-parse main)x &&
 	bad_content_2=xfsazqfxcadas &&
 	bad_content_3=Xfsazqfxcadas &&
+	non_existing_oid=$(test_oid 001) &&
+	tree_oid=$(git rev-parse main^{tree}) &&
 	printf "%s" $bad_content_1 >$tag_dir_prefix/tag-bad-1 &&
 	printf "%s" $bad_content_2 >$tag_dir_prefix/tag-bad-2 &&
 	printf "%s" $bad_content_3 >$branch_dir_prefix/a/b/branch-bad &&
 	printf "%s" "$(git rev-parse main)" >$branch_dir_prefix/branch-no-newline &&
 	printf "%s garbage" "$(git rev-parse main)" >$branch_dir_prefix/branch-garbage &&
+	printf "%s\n" $non_existing_oid >$branch_dir_prefix/branch-non-existing-oid &&
+	printf "%s\n" $tree_oid >$branch_dir_prefix/branch-tree &&
 
 	test_must_fail git refs verify 2>err &&
 	cat >expect <<-EOF &&
 	error: refs/heads/a/b/branch-bad: badRefContent: $bad_content_3
+	error: refs/heads/branch-non-existing-oid: badRefContent: points to non-existing object $non_existing_oid
+	error: refs/heads/branch-tree: badRefContent: points to non-commit object $tree_oid
 	error: refs/tags/tag-bad-1: badRefContent: $bad_content_1
 	error: refs/tags/tag-bad-2: badRefContent: $bad_content_2
 	warning: refs/heads/branch-garbage: trailingRefContent: has trailing garbage: '\'' garbage'\''
