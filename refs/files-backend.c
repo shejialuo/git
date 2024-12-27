@@ -21,6 +21,7 @@
 #include "../lockfile.h"
 #include "../object.h"
 #include "../object-file.h"
+#include "../packfile.h"
 #include "../path.h"
 #include "../dir.h"
 #include "../chdir-notify.h"
@@ -3703,18 +3704,47 @@ static int files_fsck_refs_content(struct ref_store *ref_store,
 	}
 
 	if (!(type & REF_ISSYMREF)) {
+		struct object *obj = parse_object(the_repository, &oid);
+
+		if (!obj) {
+			if (!is_promisor_object(the_repository, &oid)) {
+				ret |= fsck_report_ref(o, &report,
+						       FSCK_MSG_BAD_REF_CONTENT,
+						       "points to non-existing object %s",
+						       oid_to_hex(&oid));
+			}
+		} else if (obj->type != OBJ_COMMIT) {
+			const char *err_fmt = NULL;
+
+			/*
+			 * Only tag can point to annotated tag object. All other refs
+			 * should point to commit object.
+			 */
+			if (starts_with(target_name, "refs/tags/")) {
+				if (obj->type != OBJ_TAG)
+					err_fmt = "points to neither commit nor tag object %s";
+			} else {
+				err_fmt = "points to non-commit object %s";
+			}
+
+			if (err_fmt) {
+				ret |= fsck_report_ref(o, &report,
+						       FSCK_MSG_BAD_REF_CONTENT,
+						       err_fmt, oid_to_hex(&oid));
+			}
+		}
+
 		if (!*trailing) {
-			ret = fsck_report_ref(o, &report,
-					      FSCK_MSG_REF_MISSING_NEWLINE,
-					      "misses LF at the end");
-			goto cleanup;
+			ret |= fsck_report_ref(o, &report,
+					       FSCK_MSG_REF_MISSING_NEWLINE,
+					       "misses LF at the end");
+		} else if (*trailing != '\n' || *(trailing + 1)) {
+			ret |= fsck_report_ref(o, &report,
+					       FSCK_MSG_TRAILING_REF_CONTENT,
+					       "has trailing garbage: '%s'", trailing);
 		}
-		if (*trailing != '\n' || *(trailing + 1)) {
-			ret = fsck_report_ref(o, &report,
-					      FSCK_MSG_TRAILING_REF_CONTENT,
-					      "has trailing garbage: '%s'", trailing);
-			goto cleanup;
-		}
+
+		goto cleanup;
 	} else {
 		ret = files_fsck_symref_target(o, &report, &referent, 0);
 		goto cleanup;
