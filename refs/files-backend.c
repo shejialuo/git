@@ -3599,7 +3599,7 @@ static int files_fsck_refs_oid(struct fsck_options *o,
 	struct object *obj;
 	int ret = 0;
 
-	if (is_promisor_object(ref_store->repo, oid))
+	if (!o->safe_object_check || is_promisor_object(ref_store->repo, oid))
 		return 0;
 
 	obj = parse_object(ref_store->repo, oid);
@@ -3819,8 +3819,8 @@ static int files_fsck(struct ref_store *ref_store,
 	struct files_ref_store *refs =
 		files_downcast(ref_store, REF_STORE_READ, "fsck");
 
-	return files_fsck_refs(ref_store, o, wt) |
-	       refs->packed_ref_store->be->fsck(refs->packed_ref_store, o, wt);
+	return refs->packed_ref_store->be->fsck(refs->packed_ref_store, o, wt) |
+	       files_fsck_refs(ref_store, o, wt);
 }
 
 struct ref_storage_be refs_be_files = {

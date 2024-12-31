@@ -1748,12 +1748,100 @@ static struct ref_iterator *packed_reflog_iterator_begin(struct ref_store *ref_s
 	return empty_ref_iterator_begin();
 }
 
+static int packed_fsck_ref_next_line(struct fsck_options *o,
+				     int line_number, const char *start,
+				     const char *eof, const char **eol)
+{
+	int ret = 0;
+
+	*eol = memchr(start, '\n', eof - start);
+	if (!*eol) {
+		struct strbuf packed_entry = STRBUF_INIT;
+		struct fsck_ref_report report = { 0 };
+
+		strbuf_addf(&packed_entry, "packed-refs line %d", line_number);
+		report.path = packed_entry.buf;
+		ret = fsck_report_ref(o, &report,
+				      FSCK_MSG_PACKED_REF_ENTRY_NOT_TERMINATED,
+				      "'%.*s' is not terminated with a newline",
+				      (int)(eof - start), start);
+
+		/*
+		 * There is no newline but we still want to parse it to the end of
+		 * the buffer.
+		 */
+		*eol = eof;
+		strbuf_release(&packed_entry);
+	}
+
+	return ret;
+}
+
+static int packed_fsck_ref_header(struct fsck_options *o, const char *start, const char *eol)
+{
+	const char *err_fmt = NULL;
+	int fsck_msg_id = -1;
+
+	if (!starts_with(start, "# pack-refs with:")) {
+		err_fmt = "'%.*s' does not start with '# pack-refs with:'";
+		fsck_msg_id = FSCK_MSG_BAD_PACKED_REF_HEADER;
+	} else if (strncmp(start, PACKED_REFS_HEADER, strlen(PACKED_REFS_HEADER))) {
+		err_fmt = "'%.*s' is not the official packed-refs header";
+		fsck_msg_id = FSCK_MSG_UNKNOWN_PACKED_REF_HEADER;
+	}
+
+	if (err_fmt && fsck_msg_id >= 0) {
+		struct fsck_ref_report report = { 0 };
+		report.path = "packed-refs.header";
+
+		return fsck_report_ref(o, &report, fsck_msg_id, err_fmt,
+				       (int)(eol - start), start);
+
+	}
+
+	return 0;
+}
+
+static int packed_fsck_ref_content(struct fsck_options *o,
+				   const char *start, const char *eof)
+{
+	int line_number = 1;
+	const char *eol;
+	int ret = 0;
+
+	ret |= packed_fsck_ref_next_line(o, line_number, start, eof, &eol);
+	if (*start == '#') {
+		ret |= packed_fsck_ref_header(o, start, eol);
+
+		start = eol + 1;
+		line_number++;
+	} else {
+		struct fsck_ref_report report = { 0 };
+		report.path = "packed-refs";
+
+		ret |= fsck_report_ref(o, &report,
+				       FSCK_MSG_PACKED_REF_MISSING_HEADER,
+				       "missing header line");
+	}
+
+	/*
+	 * If there is anything wrong during the parsing of the "packed-refs"
+	 * file, we should not check the object of the refs.
+	 */
+	if (ret)
+		o->safe_object_check = 0;
+
+
+	return ret;
+}
+
 static int packed_fsck(struct ref_store *ref_store,
 		       struct fsck_options *o,
 		       struct worktree *wt)
 {
 	struct packed_ref_store *refs = packed_downcast(ref_store,
 							REF_STORE_READ, "fsck");
+	struct strbuf packed_ref_content = STRBUF_INIT;
 	struct stat st;
 	int ret = 0;
 
@@ -1779,7 +1867,24 @@ static int packed_fsck(struct ref_store *ref_store,
 		goto cleanup;
 	}
 
+	if (strbuf_read_file(&packed_ref_content, refs->path, 0) < 0) {
+		/*
+		 * Although we have checked that the file exists, there is a possibility
+		 * that it has been removed between the lstat() and the read attempt by
+		 * another process. In that case, we should not report an error.
+		 */
+		if (errno == ENOENT)
+			goto cleanup;
+
+		ret = error_errno("could not read %s", refs->path);
+		goto cleanup;
+	}
+
+	ret = packed_fsck_ref_content(o, packed_ref_content.buf,
+				      packed_ref_content.buf + packed_ref_content.len);
+
 cleanup:
+	strbuf_release(&packed_ref_content);
 	return ret;
 }
 
