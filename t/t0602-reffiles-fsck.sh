@@ -660,4 +660,55 @@ test_expect_success 'packed-refs header should be checked' '
 	done
 '
 
+test_expect_success 'packed-refs content should be checked' '
+	test_when_finished "rm -rf repo" &&
+	git init repo &&
+	cd repo &&
+	test_commit default &&
+	git branch branch-1 &&
+	git branch branch-2 &&
+	git tag -a annotated-tag-1 -m tag-1 &&
+	git tag -a annotated-tag-2 -m tag-2 &&
+
+	branch_1_oid=$(git rev-parse branch-1) &&
+	branch_2_oid=$(git rev-parse branch-2) &&
+	tag_1_oid=$(git rev-parse annotated-tag-1) &&
+	tag_2_oid=$(git rev-parse annotated-tag-2) &&
+	tag_1_peeled_oid=$(git rev-parse annotated-tag-1^{}) &&
+	tag_2_peeled_oid=$(git rev-parse annotated-tag-2^{}) &&
+	short_oid=$(printf "%s" $tag_1_peeled_oid | cut -c 1-4) &&
+
+	printf "# pack-refs with: peeled fully-peeled sorted \n"  >.git/packed-refs &&
+
+	printf "%s refs/heads/main\n" "$(git rev-parse main)" >>.git/packed-refs &&
+	printf "%s refs/heads/branch-1\n" "$branch_1_oid" >>.git/packed-refs &&
+	printf "%s refs/heads/branch-2\n" "$branch_2_oid" >>.git/packed-refs &&
+	printf "%s refs/tags/annotated-tag-1\n" "$tag_1_oid" >>.git/packed-refs &&
+	printf "^$tag_1_peeled_oid\n" >>.git/packed-refs &&
+	printf "%s refs/tags/annotated-tag-2\n" "$tag_2_oid" >>.git/packed-refs &&
+	printf "^$tag_2_peeled_oid\n" >>.git/packed-refs &&
+	git refs verify 2>err &&
+	test_must_be_empty err &&
+
+	printf "%s\n" "$short_oid refs/heads/branch-1" >>.git/packed-refs &&
+	printf "%sx\n" "$branch_1_oid" >>.git/packed-refs &&
+	printf "%s   refs/heads/bad-branch\n" "$branch_2_oid" >>.git/packed-refs &&
+	printf "%s refs/heads/branch.\n" "$branch_2_oid" >>.git/packed-refs &&
+	printf "%s tags/annotated-tag-3\n" "$tag_1_oid" >>.git/packed-refs &&
+	printf "^%s\n" "$short_oid" >>.git/packed-refs &&
+	printf "%s tags/annotated-tag-4.\n" "$tag_2_oid" >>.git/packed-refs &&
+	printf "^%s garbage\n" "$tag_2_peeled_oid" >>.git/packed-refs &&
+	test_must_fail git refs verify 2>err &&
+	cat >expect <<-EOF &&
+	error: packed-refs line 9: badPackedRefEntry: '\''$short_oid refs/heads/branch-1'\'' has invalid oid
+	error: packed-refs line 10: badPackedRefEntry: has no space after oid '\''$branch_1_oid'\'' but with '\''x'\''
+	error: packed-refs line 11: badRefName: has bad refname '\''  refs/heads/bad-branch'\''
+	error: packed-refs line 12: badRefName: has bad refname '\''refs/heads/branch.'\''
+	error: packed-refs line 14: badPackedRefEntry: '\''$short_oid'\'' has invalid peeled oid
+	error: packed-refs line 15: badRefName: has bad refname '\''tags/annotated-tag-4.'\''
+	error: packed-refs line 16: badPackedRefEntry: has trailing garbage after peeled oid '\'' garbage'\''
+	EOF
+	test_cmp expect err
+'
+
 test_done
