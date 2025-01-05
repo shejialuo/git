@@ -730,4 +730,39 @@ test_expect_success 'packed-refs content should be checked' '
 	test_cmp expect err
 '
 
+test_expect_success 'packed-refs objects should be checked' '
+	test_when_finished "rm -rf repo" &&
+	git init repo &&
+	cd repo &&
+	test_commit default &&
+	git tag -a annotated-tag-1 -m tag-1 &&
+
+	tag_1_oid=$(git rev-parse annotated-tag-1) &&
+
+	for non_existing_oid in "$(test_oid 001)" "$(test_oid 002)"
+	do
+		printf "# pack-refs with: peeled fully-peeled sorted \n"  >.git/packed-refs &&
+		printf "%s refs/heads/foo\n" "$non_existing_oid" >>.git/packed-refs &&
+		test_must_fail git refs verify 2>err &&
+		cat >expect <<-EOF &&
+		error: packed-refs line 2: badPackedRefEntry: '\''$non_existing_oid'\'' is not a valid object
+		EOF
+		rm .git/packed-refs &&
+		test_cmp expect err || return 1
+	done &&
+
+	for non_existing_oid in "$(test_oid 001)" "$(test_oid 002)"
+	do
+		printf "# pack-refs with: peeled fully-peeled sorted \n"  >.git/packed-refs &&
+		printf "%s refs/tags/foo\n" "$tag_1_oid" >>.git/packed-refs &&
+		printf "^$non_existing_oid\n" >>.git/packed-refs &&
+		test_must_fail git refs verify 2>err &&
+		cat >expect <<-EOF &&
+		error: packed-refs line 3: badPackedRefEntry: '\''$non_existing_oid'\'' is not a valid object
+		EOF
+		rm .git/packed-refs &&
+		test_cmp expect err || return 1
+	done
+'
+
 test_done

@@ -13,6 +13,7 @@
 #include "../iterator.h"
 #include "../lockfile.h"
 #include "../chdir-notify.h"
+#include "../packfile.h"
 #include "../statinfo.h"
 #include "../worktree.h"
 #include "../wrapper.h"
@@ -1933,6 +1934,52 @@ cleanup:
 	return ret;
 }
 
+static int packed_fsck_ref_oid(struct fsck_options *o, struct ref_store *ref_store,
+			       struct fsck_packed_ref_entry **entries, int nr)
+{
+	struct strbuf packed_entry = STRBUF_INIT;
+	struct fsck_ref_report report = { 0 };
+	struct object *obj;
+	int ret = 0;
+
+	for (int i = 0; i < nr; i++) {
+		struct fsck_packed_ref_entry *entry = entries[i];
+
+		strbuf_release(&packed_entry);
+		strbuf_addf(&packed_entry, "packed-refs line %d", entry->line_number);
+		report.path = packed_entry.buf;
+
+		if (is_promisor_object(ref_store->repo, &entry->oid))
+			continue;
+
+		obj = parse_object(ref_store->repo, &entry->oid);
+		if (!obj) {
+			ret |= fsck_report_ref(o, &report,
+					       FSCK_MSG_BAD_PACKED_REF_ENTRY,
+					       "'%s' is not a valid object",
+					       oid_to_hex(&entry->oid));
+		}
+		if (entry->has_peeled) {
+			strbuf_reset(&packed_entry);
+			strbuf_addf(&packed_entry, "packed-refs line %d",
+				    entry->line_number + 1);
+			report.path = packed_entry.buf;
+
+			obj = parse_object(ref_store->repo, &entry->peeled);
+			if (!obj) {
+				ret |= fsck_report_ref(o, &report,
+						       FSCK_MSG_BAD_PACKED_REF_ENTRY,
+						       "'%s' is not a valid object",
+						       oid_to_hex(&entry->peeled));
+			}
+		}
+
+	}
+
+	strbuf_release(&packed_entry);
+	return ret;
+}
+
 static int packed_fsck_ref_content(struct fsck_options *o,
 				   struct ref_store *ref_store,
 				   const char *start, const char *eof)
@@ -1986,7 +2033,8 @@ static int packed_fsck_ref_content(struct fsck_options *o,
 	 */
 	if (ret)
 		o->safe_object_check = 0;
-
+	else
+		ret |= packed_fsck_ref_oid(o, ref_store, entries, entry_nr);
 
 	free_fsck_packed_ref_entries(entries, entry_nr);
 	return ret;
