@@ -300,14 +300,8 @@ struct snapshot_record {
 	size_t len;
 };
 
-static int cmp_packed_ref_records(const void *v1, const void *v2,
-				  void *cb_data)
+static int cmp_packed_refname(const char *r1, const char *r2)
 {
-	const struct snapshot *snapshot = cb_data;
-	const struct snapshot_record *e1 = v1, *e2 = v2;
-	const char *r1 = e1->start + snapshot_hexsz(snapshot) + 1;
-	const char *r2 = e2->start + snapshot_hexsz(snapshot) + 1;
-
 	while (1) {
 		if (*r1 == '\n')
 			return *r2 == '\n' ? 0 : -1;
@@ -320,6 +314,17 @@ static int cmp_packed_ref_records(const void *v1, const void *v2,
 		r1++;
 		r2++;
 	}
+}
+
+static int cmp_packed_ref_records(const void *v1, const void *v2,
+				  void *cb_data)
+{
+	const struct snapshot *snapshot = cb_data;
+	const struct snapshot_record *e1 = v1, *e2 = v2;
+	const char *r1 = e1->start + snapshot_hexsz(snapshot) + 1;
+	const char *r2 = e2->start + snapshot_hexsz(snapshot) + 1;
+
+	return cmp_packed_refname(r1, r2);
 }
 
 /*
@@ -1775,13 +1780,17 @@ struct fsck_packed_ref_entry {
 	int has_peeled;
 	struct object_id oid;
 	struct object_id peeled;
+
+	struct snapshot_record record;
 };
 
-static struct fsck_packed_ref_entry *create_fsck_packed_ref_entry(int line_number)
+static struct fsck_packed_ref_entry *create_fsck_packed_ref_entry(int line_number,
+								  const char *start)
 {
 	struct fsck_packed_ref_entry *entry = xcalloc(1, sizeof(*entry));
 	entry->line_number = line_number;
 	entry->has_peeled = 0;
+	entry->record.start = start;
 	return entry;
 }
 
@@ -1980,6 +1989,50 @@ static int packed_fsck_ref_oid(struct fsck_options *o, struct ref_store *ref_sto
 	return ret;
 }
 
+static int packed_fsck_ref_sorted(struct fsck_options *o,
+				  struct ref_store *ref_store,
+				  struct fsck_packed_ref_entry **entries,
+				  int nr)
+{
+	size_t hexsz = ref_store->repo->hash_algo->hexsz;
+	struct strbuf packed_entry = STRBUF_INIT;
+	struct fsck_ref_report report = { 0 };
+	struct strbuf refname1 = STRBUF_INIT;
+	struct strbuf refname2 = STRBUF_INIT;
+	int ret = 0;
+
+	for (int i = 1; i < nr; i++) {
+		const char *r1 = entries[i - 1]->record.start + hexsz + 1;
+		const char *r2 = entries[i]->record.start + hexsz + 1;
+
+		if (cmp_packed_refname(r1, r2) >= 0) {
+			const char *err_fmt =
+				"refname '%s' is not less than next refname '%s'";
+			const char *eol;
+			eol = memchr(entries[i - 1]->record.start, '\n',
+				     entries[i - 1]->record.len);
+			strbuf_add(&refname1, r1, eol - r1);
+			eol = memchr(entries[i]->record.start, '\n',
+				     entries[i]->record.len);
+			strbuf_add(&refname2, r2, eol - r2);
+
+			strbuf_addf(&packed_entry, "packed-refs line %d",
+				    entries[i - 1]->line_number);
+			report.path = packed_entry.buf;
+			ret = fsck_report_ref(o, &report,
+					      FSCK_MSG_PACKED_REF_UNSORTED,
+					      err_fmt, refname1.buf, refname2.buf);
+			goto cleanup;
+		}
+	}
+
+cleanup:
+	strbuf_release(&packed_entry);
+	strbuf_release(&refname1);
+	strbuf_release(&refname2);
+	return ret;
+}
+
 static int packed_fsck_ref_content(struct fsck_options *o,
 				   struct ref_store *ref_store,
 				   const char *start, const char *eof)
@@ -2009,7 +2062,7 @@ static int packed_fsck_ref_content(struct fsck_options *o,
 	ALLOC_ARRAY(entries, entry_alloc);
 	while (start < eof) {
 		struct fsck_packed_ref_entry *entry
-			= create_fsck_packed_ref_entry(line_number);
+			= create_fsck_packed_ref_entry(line_number, start);
 		ALLOC_GROW(entries, entry_nr + 1, entry_alloc);
 		entries[entry_nr++] = entry;
 
@@ -2025,16 +2078,19 @@ static int packed_fsck_ref_content(struct fsck_options *o,
 			start = eol + 1;
 			line_number++;
 		}
+		entry->record.len = start - entry->record.start;
 	}
 
 	/*
 	 * If there is anything wrong during the parsing of the "packed-refs"
 	 * file, we should not check the object of the refs.
 	 */
-	if (ret)
+	if (ret) {
 		o->safe_object_check = 0;
-	else
+	} else {
 		ret |= packed_fsck_ref_oid(o, ref_store, entries, entry_nr);
+		ret |= packed_fsck_ref_sorted(o, ref_store, entries, entry_nr);
+	}
 
 	free_fsck_packed_ref_entries(entries, entry_nr);
 	return ret;
