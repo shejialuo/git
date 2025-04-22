@@ -84,3 +84,42 @@ void test_string_list__split(void)
 
 	t_string_list_clear(&expected_strings, 0);
 }
+
+static void t_string_list_split_in_place(const char *data, const char *delim, int maxsplit,
+					 struct string_list *expected_strings)
+{
+	struct string_list list = STRING_LIST_INIT_NODUP;
+
+	char *string = xstrdup(data);
+
+	int len = string_list_split_in_place(&list, string, delim, maxsplit);
+	cl_assert_equal_i(len, expected_strings->nr);
+	t_check_string_list(&list, expected_strings);
+
+	free(string);
+	t_string_list_clear(&list, 0);
+}
+
+void test_string_list__split_in_place(void)
+{
+	struct string_list expected_strings = STRING_LIST_INIT_DUP;
+
+	t_create_string_list_dup(&expected_strings, 0, "foo", "", "", "bar",
+				 "", "", "baz", "", "", "", NULL);
+	t_string_list_split_in_place("foo:;:bar:;:baz:;:", ":;", -1, &expected_strings);
+
+	t_create_string_list_dup(&expected_strings, 0, "foo:;:bar:;:baz", NULL);
+	t_string_list_split_in_place("foo:;:bar:;:baz", ":;", 0, &expected_strings);
+
+	t_create_string_list_dup(&expected_strings, 0, "foo", ";:bar:;:baz", NULL);
+	t_string_list_split_in_place("foo:;:bar:;:baz", ":;", 1, &expected_strings);
+
+	t_create_string_list_dup(&expected_strings, 0, "foo", "", ":bar:;:baz", NULL);
+	t_string_list_split_in_place("foo:;:bar:;:baz", ":;", 2, &expected_strings);
+
+	t_create_string_list_dup(&expected_strings, 0, "foo", "", "", "bar",
+				 "", "", "", NULL);
+	t_string_list_split_in_place("foo:;:bar:;:", ":;", -1, &expected_strings);
+
+	t_string_list_clear(&expected_strings, 0);
+}
