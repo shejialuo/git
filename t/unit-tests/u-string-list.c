@@ -123,3 +123,54 @@ void test_string_list__split_in_place(void)
 
 	t_string_list_clear(&expected_strings, 0);
 }
+
+static int prefix_cb(struct string_list_item *item, void *cb_data)
+{
+	const char *prefix = (const char *)cb_data;
+	return starts_with(item->string, prefix);
+}
+
+static void t_string_list_filter(struct string_list *list,
+				 string_list_each_func_t want, void *cb_data,
+				 struct string_list *expected_strings)
+{
+	filter_string_list(list, 0, want, cb_data);
+	t_check_string_list(list, expected_strings);
+}
+
+void test_string_list__filter(void)
+{
+	struct string_list expected_strings = STRING_LIST_INIT_DUP;
+	struct string_list list = STRING_LIST_INIT_DUP;
+	const char *prefix = "y";
+
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "no", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "yes", NULL);
+	t_create_string_list_dup(&expected_strings, 0, "yes", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "no", "yes", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "yes", "no", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "y1", "y2", NULL);
+	t_create_string_list_dup(&expected_strings, 0, "y1", "y2", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "y2", "y1", NULL);
+	t_create_string_list_dup(&expected_strings, 0, "y2", "y1", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "x1", "x2", NULL);
+	t_create_string_list_dup(&expected_strings, 0, NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, &expected_strings);
+
+	t_string_list_clear(&list, 0);
+	t_string_list_clear(&expected_strings, 0);
+}
