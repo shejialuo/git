@@ -174,3 +174,65 @@ void test_string_list__filter(void)
 	t_string_list_clear(&list, 0);
 	t_string_list_clear(&expected_strings, 0);
 }
+
+static void t_string_list_remove_duplicates(struct string_list *list,
+					    struct string_list *expected_strings)
+{
+	string_list_remove_duplicates(list, 0);
+	t_check_string_list(list, expected_strings);
+}
+
+void test_string_list__remove_duplicates(void)
+{
+	struct string_list expected_strings = STRING_LIST_INIT_DUP;
+	struct string_list list = STRING_LIST_INIT_DUP;
+
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "", NULL);
+	t_create_string_list_dup(&expected_strings, 0, "", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&expected_strings, 0, "a", NULL);
+
+	t_create_string_list_dup(&list, 0, "a", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "a", "a", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "a", "a", "a", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&expected_strings, 0, "a", "b", NULL);
+
+	t_create_string_list_dup(&list, 0, "a", "a", "b", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "a", "b", "b", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&expected_strings, 0, "a", "b", "c", NULL);
+
+	t_create_string_list_dup(&list, 0, "a", "b", "c", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "a", "a", "b", "c", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "a", "b", "b", "c", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "a", "b", "c", "c", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "a", "a", "b", "b", "c", "c", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_create_string_list_dup(&list, 0, "a", "a", "a", "b", "b", "b",
+				 "c", "c", "c", NULL);
+	t_string_list_remove_duplicates(&list, &expected_strings);
+
+	t_string_list_clear(&list, 0);
+	t_string_list_clear(&expected_strings, 0);
+}
