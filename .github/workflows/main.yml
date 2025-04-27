@@ -415,7 +415,20 @@ jobs:
       if: matrix.vector.jobname == 'linux32'
       run: apt -q update && apt -q -y install libc6-amd64 lib64stdc++6
     - uses: actions/checkout@v4
-    - run: ci/install-dependencies.sh
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      id: cache-deps
+      with:
+        path: |
+          /var/cache/apt
+          /var/cache/dnf
+          $HOME/path
+        key: ${{ matrix.vector.image}}-deps-${{ hashFiles('ci/install-dependencies.sh') }}
+        restore-keys: |
+          ${{ matrix.vector.image }}-deps-
+    - name: Install dependencies
+      if: steps.cache-deps.outputs.cache-hit != 'true'
+      run: ci/install-dependencies.sh
     - run: useradd builder --create-home
     - run: chown -R builder .
     - run: sudo --preserve-env --set-home --user=builder ci/run-build-and-tests.sh
