@@ -2079,7 +2079,7 @@ static int packed_fsck(struct ref_store *ref_store,
 {
 	struct packed_ref_store *refs = packed_downcast(ref_store,
 							REF_STORE_READ, "fsck");
-	struct strbuf packed_ref_content = STRBUF_INIT;
+	struct snapshot *snapshot = xcalloc(1, sizeof(*snapshot));
 	unsigned int sorted = 0;
 	struct stat st;
 	int ret = 0;
@@ -2126,21 +2126,23 @@ static int packed_fsck(struct ref_store *ref_store,
 	if (!st.st_size)
 		goto cleanup;
 
-	if (strbuf_read(&packed_ref_content, fd, 0) < 0) {
-		ret = error_errno(_("unable to read '%s'"), refs->path);
+	if (!allocate_snapshot_buffer(snapshot, fd, &st))
 		goto cleanup;
-	}
 
-	ret = packed_fsck_ref_content(o, ref_store, &sorted, packed_ref_content.buf,
-				      packed_ref_content.buf + packed_ref_content.len);
+	if (mmap_strategy == MMAP_TEMPORARY && snapshot->mmapped)
+		munmap_temporary_snapshot(snapshot);
+
+	ret = packed_fsck_ref_content(o, ref_store, &sorted, snapshot->start,
+				      snapshot->eof);
 	if (!ret && sorted)
-		ret = packed_fsck_ref_sorted(o, ref_store, packed_ref_content.buf,
-					     packed_ref_content.buf + packed_ref_content.len);
+		ret = packed_fsck_ref_sorted(o, ref_store, snapshot->start,
+					     snapshot->eof);
 
 cleanup:
 	if (fd >= 0)
 		close(fd);
-	strbuf_release(&packed_ref_content);
+	clear_snapshot_buffer(snapshot);
+	free(snapshot);
 	return ret;
 }
 
