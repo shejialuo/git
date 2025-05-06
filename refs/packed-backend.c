@@ -543,6 +543,23 @@ static int allocate_snapshot_buffer(struct snapshot *snapshot, int fd, struct st
 	return 1;
 }
 
+static void munmap_snapshot_if_temporary(struct snapshot *snapshot)
+{
+	if (mmap_strategy != MMAP_OK && snapshot->mmapped) {
+		/*
+		 * We don't want to leave the file mmapped, so we are
+		 * forced to make a copy now:
+		 */
+		size_t size = snapshot->eof - snapshot->start;
+		char *buf_copy = xmalloc(size);
+
+		memcpy(buf_copy, snapshot->start, size);
+		clear_snapshot_buffer(snapshot);
+		snapshot->buf = snapshot->start = buf_copy;
+		snapshot->eof = buf_copy + size;
+	}
+}
+
 /*
  * Depending on `mmap_strategy`, either mmap or read the contents of
  * the `packed-refs` file into the snapshot. Return 1 if the file
@@ -761,19 +778,7 @@ static struct snapshot *create_snapshot(struct packed_ref_store *refs)
 		verify_buffer_safe(snapshot);
 	}
 
-	if (mmap_strategy != MMAP_OK && snapshot->mmapped) {
-		/*
-		 * We don't want to leave the file mmapped, so we are
-		 * forced to make a copy now:
-		 */
-		size_t size = snapshot->eof - snapshot->start;
-		char *buf_copy = xmalloc(size);
-
-		memcpy(buf_copy, snapshot->start, size);
-		clear_snapshot_buffer(snapshot);
-		snapshot->buf = snapshot->start = buf_copy;
-		snapshot->eof = buf_copy + size;
-	}
+	munmap_snapshot_if_temporary(snapshot);
 
 	return snapshot;
 }
