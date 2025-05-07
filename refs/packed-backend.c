@@ -517,6 +517,53 @@ static int refname_contains_nul(struct strbuf *refname)
 
 #define SMALL_FILE_SIZE (32*1024)
 
+static int allocate_snapshot_buffer(struct snapshot *snapshot, int fd, struct stat *st)
+{
+	ssize_t bytes_read;
+	size_t size;
+
+	size = xsize_t(st->st_size);
+	if (!size)
+		return 0;
+
+	if (mmap_strategy == MMAP_NONE || size <= SMALL_FILE_SIZE) {
+		snapshot->buf = xmalloc(size);
+		bytes_read = read_in_full(fd, snapshot->buf, size);
+		if (bytes_read < 0 || bytes_read != size)
+			die_errno("couldn't read %s", snapshot->refs->path);
+		snapshot->mmapped = 0;
+	} else {
+		snapshot->buf = xmmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+		snapshot->mmapped = 1;
+	}
+
+	snapshot->start = snapshot->buf;
+	snapshot->eof = snapshot->buf + size;
+
+	return 1;
+}
+
+static void munmap_temporary_snapshot(struct snapshot *snapshot)
+{
+	char *buf_copy;
+	size_t size;
+
+	if (!snapshot)
+		return;
+
+	/*
+	 * We don't want to leave the file mmapped, so we are
+	 * forced to make a copy now:
+	 */
+	size = snapshot->eof - snapshot->start;
+	buf_copy = xmalloc(size);
+
+	memcpy(buf_copy, snapshot->start, size);
+	clear_snapshot_buffer(snapshot);
+	snapshot->buf = snapshot->start = buf_copy;
+	snapshot->eof = buf_copy + size;
+}
+
 /*
  * Depending on `mmap_strategy`, either mmap or read the contents of
  * the `packed-refs` file into the snapshot. Return 1 if the file
@@ -525,10 +572,9 @@ static int refname_contains_nul(struct strbuf *refname)
  */
 static int load_contents(struct snapshot *snapshot)
 {
-	int fd;
 	struct stat st;
-	size_t size;
-	ssize_t bytes_read;
+	int ret = 1;
+	int fd;
 
 	fd = open(snapshot->refs->path, O_RDONLY);
 	if (fd < 0) {
@@ -550,27 +596,12 @@ static int load_contents(struct snapshot *snapshot)
 
 	if (fstat(fd, &st) < 0)
 		die_errno("couldn't stat %s", snapshot->refs->path);
-	size = xsize_t(st.st_size);
 
-	if (!size) {
-		close(fd);
-		return 0;
-	} else if (mmap_strategy == MMAP_NONE || size <= SMALL_FILE_SIZE) {
-		snapshot->buf = xmalloc(size);
-		bytes_read = read_in_full(fd, snapshot->buf, size);
-		if (bytes_read < 0 || bytes_read != size)
-			die_errno("couldn't read %s", snapshot->refs->path);
-		snapshot->mmapped = 0;
-	} else {
-		snapshot->buf = xmmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
-		snapshot->mmapped = 1;
-	}
+	if (!allocate_snapshot_buffer(snapshot, fd, &st))
+		ret = 0;
+
 	close(fd);
-
-	snapshot->start = snapshot->buf;
-	snapshot->eof = snapshot->buf + size;
-
-	return 1;
+	return ret;
 }
 
 static const char *find_reference_location_1(struct snapshot *snapshot,
@@ -751,19 +782,8 @@ static struct snapshot *create_snapshot(struct packed_ref_store *refs)
 		verify_buffer_safe(snapshot);
 	}
 
-	if (mmap_strategy != MMAP_OK && snapshot->mmapped) {
-		/*
-		 * We don't want to leave the file mmapped, so we are
-		 * forced to make a copy now:
-		 */
-		size_t size = snapshot->eof - snapshot->start;
-		char *buf_copy = xmalloc(size);
-
-		memcpy(buf_copy, snapshot->start, size);
-		clear_snapshot_buffer(snapshot);
-		snapshot->buf = snapshot->start = buf_copy;
-		snapshot->eof = buf_copy + size;
-	}
+	if (mmap_strategy == MMAP_TEMPORARY && snapshot->mmapped)
+		munmap_temporary_snapshot(snapshot);
 
 	return snapshot;
 }
@@ -2059,7 +2079,7 @@ static int packed_fsck(struct ref_store *ref_store,
 {
 	struct packed_ref_store *refs = packed_downcast(ref_store,
 							REF_STORE_READ, "fsck");
-	struct strbuf packed_ref_content = STRBUF_INIT;
+	struct snapshot *snapshot = xcalloc(1, sizeof(*snapshot));
 	unsigned int sorted = 0;
 	struct stat st;
 	int ret = 0;
@@ -2103,21 +2123,26 @@ static int packed_fsck(struct ref_store *ref_store,
 		goto cleanup;
 	}
 
-	if (strbuf_read(&packed_ref_content, fd, 0) < 0) {
-		ret = error_errno(_("unable to read '%s'"), refs->path);
+	if (!st.st_size)
 		goto cleanup;
-	}
 
-	ret = packed_fsck_ref_content(o, ref_store, &sorted, packed_ref_content.buf,
-				      packed_ref_content.buf + packed_ref_content.len);
+	if (!allocate_snapshot_buffer(snapshot, fd, &st))
+		goto cleanup;
+
+	if (mmap_strategy == MMAP_TEMPORARY && snapshot->mmapped)
+		munmap_temporary_snapshot(snapshot);
+
+	ret = packed_fsck_ref_content(o, ref_store, &sorted, snapshot->start,
+				      snapshot->eof);
 	if (!ret && sorted)
-		ret = packed_fsck_ref_sorted(o, ref_store, packed_ref_content.buf,
-					     packed_ref_content.buf + packed_ref_content.len);
+		ret = packed_fsck_ref_sorted(o, ref_store, snapshot->start,
+					     snapshot->eof);
 
 cleanup:
 	if (fd >= 0)
 		close(fd);
-	strbuf_release(&packed_ref_content);
+	clear_snapshot_buffer(snapshot);
+	free(snapshot);
 	return ret;
 }
 
