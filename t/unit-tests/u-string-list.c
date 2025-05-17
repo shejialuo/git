@@ -13,6 +13,18 @@ static void t_vcreate_string_list_dup(struct string_list *list,
 		string_list_append(list, arg);
 }
 
+static void t_create_string_list_dup(struct string_list *list, int free_util, ...)
+{
+	va_list ap;
+
+	cl_assert(list->strdup_strings);
+
+	string_list_clear(list, free_util);
+	va_start(ap, free_util);
+	t_vcreate_string_list_dup(list, free_util, ap);
+	va_end(ap);
+}
+
 static void t_string_list_clear(struct string_list *list, int free_util)
 {
 	string_list_clear(list, free_util);
@@ -100,6 +112,60 @@ void test_string_list__split_in_place(void)
 				     "foo", "", ":bar:;:baz", NULL);
 	t_string_list_split_in_place(&list, "foo:;:bar:;:", ":;", -1,
 				     "foo", "", "", "bar", "", "", "", NULL);
+
+	t_string_list_clear(&list, 0);
+}
+
+static int prefix_cb(struct string_list_item *item, void *cb_data)
+{
+	const char *prefix = (const char *)cb_data;
+	return starts_with(item->string, prefix);
+}
+
+static void t_string_list_filter(struct string_list *list,
+				 string_list_each_func_t want, void *cb_data, ...)
+{
+	struct string_list expected_strings = STRING_LIST_INIT_DUP;
+	va_list ap;
+
+	va_start(ap, cb_data);
+	t_vcreate_string_list_dup(&expected_strings, 0, ap);
+	va_end(ap);
+
+	filter_string_list(list, 0, want, cb_data);
+	t_string_list_equal(list, &expected_strings);
+
+	string_list_clear(&expected_strings, 0);
+}
+
+void test_string_list__filter(void)
+{
+	struct string_list list = STRING_LIST_INIT_DUP;
+	const char *prefix = "y";
+
+	t_create_string_list_dup(&list, 0, NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, NULL);
+
+	t_create_string_list_dup(&list, 0, "no", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, NULL);
+
+	t_create_string_list_dup(&list, 0, "yes", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, "yes", NULL);
+
+	t_create_string_list_dup(&list, 0, "no", "yes", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, "yes", NULL);
+
+	t_create_string_list_dup(&list, 0, "yes", "no", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, "yes", NULL);
+
+	t_create_string_list_dup(&list, 0, "y1", "y2", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, "y1", "y2", NULL);
+
+	t_create_string_list_dup(&list, 0, "y2", "y1", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, "y2", "y1", NULL);
+
+	t_create_string_list_dup(&list, 0, "x1", "x2", NULL);
+	t_string_list_filter(&list, prefix_cb, (void*)prefix, NULL);
 
 	t_string_list_clear(&list, 0);
 }
